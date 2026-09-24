@@ -89,6 +89,19 @@ class MiningRace:
                 if s.status == "minando":
                     s.status = "detenido"
 
+    def clear(self) -> None:
+        """Olvida el resultado de la última carrera (p. ej. al reiniciar la cadena)."""
+        with self.lock:
+            if self.running:
+                return
+            self.difficulty = 0
+            self.elapsed = 0.0
+            self.winner = None
+            self.winning_block = None
+            self.message = ""
+            for s in self.miners.values():
+                s.reset()
+
     def _mine(self, state: MinerState, block: Block) -> None:
         stop = self.stop_event
         base = block.hasher()

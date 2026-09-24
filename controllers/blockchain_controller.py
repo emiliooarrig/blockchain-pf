@@ -119,5 +119,6 @@ def reset():
         flash("Detén el minado antes de reiniciar.", "error")
     else:
         _chain().reset()
+        _race().clear()
         flash("Cadena reiniciada con un nuevo bloque génesis.", "ok")
     return redirect(url_for("blockchain.index"))

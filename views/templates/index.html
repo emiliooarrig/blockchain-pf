@@ -4,20 +4,28 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>LabChain · Sellado de tiempo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
 <header class="topbar">
-  <div>
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="8" height="10" rx="2"/><rect x="14" y="7" width="8" height="10" rx="2"/><path d="M10 12h4"/></svg>
+    </div>
+    <div>
     <h1>LabChain</h1>
     <p class="subtitle">Sellado de tiempo de cuadernos de laboratorio para prioridad científica · SHA-256 + prueba de trabajo</p>
+    </div>
   </div>
   <div class="topbar-actions">
     <span class="badge {{ 'badge-ok' if chain_valid else 'badge-bad' }}">
       {{ 'Cadena válida' if chain_valid else 'Cadena comprometida' }} · {{ blocks|length }} bloques
     </span>
     <form method="post" action="{{ url_for('blockchain.reset') }}">
-      <button class="btn btn-ghost" type="submit">Reiniciar cadena</button>
+      <button class="btn btn-on-dark" type="submit">Reiniciar cadena</button>
     </form>
   </div>
 </header>
@@ -32,7 +40,8 @@
   <!-- 1. Registro de entradas -->
   <section class="grid-2" id="pendientes">
     <div class="card">
-      <h2>1 · Registrar entrada del cuaderno</h2>
+      <h2><span class="step">1</span>Registrar entrada del cuaderno</h2>
+      <p class="section-hint">El contenido se resume con SHA-256 y recibe un sello de tiempo UTC.</p>
       <form method="post" action="{{ url_for('blockchain.add_entry') }}" class="form">
         <label>Investigador<input name="researcher" required placeholder="Dra. Ana López"></label>
         <label>Título del experimento<input name="title" required placeholder="Síntesis de catalizador Fe-N-C, lote 3"></label>
@@ -42,6 +51,7 @@
     </div>
     <div class="card">
       <h2>Entradas pendientes de sellar <span class="count">{{ pending|length }}</span></h2>
+      <p class="section-hint">Se incluirán en el próximo bloque que se mine.</p>
       {% if pending %}
         <ul class="entry-list">
           {% for e in pending %}
@@ -53,7 +63,10 @@
           {% endfor %}
         </ul>
       {% else %}
-        <p class="muted">No hay entradas pendientes. Registra una para poder minar un bloque.</p>
+        <div class="empty-state">
+          <div class="empty-icon" aria-hidden="true">📓</div>
+          <p>No hay entradas pendientes.<br><span class="muted">Registra una para poder minar un bloque.</span></p>
+        </div>
       {% endif %}
     </div>
   </section>
@@ -62,7 +75,10 @@
   <section class="card" id="minado" data-running="{{ 'true' if race.running else 'false' }}"
            data-status-url="{{ url_for('blockchain.mining_status') }}">
     <div class="section-head">
-      <h2>2 · Minado: Alice vs Bob</h2>
+      <div>
+        <h2><span class="step">2</span>Minado: Alice vs Bob</h2>
+        <p class="section-hint">Prueba de trabajo: gana quien encuentre primero un hash con N ceros iniciales.</p>
+      </div>
       <div class="mine-controls">
         <form method="post" action="{{ url_for('blockchain.mine') }}" class="inline">
           <label class="inline-label">Dificultad
@@ -86,6 +102,7 @@
 
     <div class="miners">
       {% for m in race.miners %}
+        {% if not loop.first %}<div class="versus" aria-hidden="true">VS</div>{% endif %}
         <div class="miner miner-{{ m.name|lower }} status-{{ m.status }}" data-miner="{{ m.name }}">
           <div class="miner-head">
             <div class="avatar">{{ m.name[0] }}</div>
@@ -105,14 +122,15 @@
         </div>
       {% endfor %}
     </div>
-    <p class="small muted">Tiempo: <span id="race-elapsed" class="mono">{{ race.elapsed }}</span> s ·
+    <p class="small muted race-foot">Tiempo: <span id="race-elapsed" class="mono">{{ race.elapsed }}</span> s ·
       Ambos minan la misma cabecera (mismo sello de tiempo y raíz de Merkle) con su nombre como minero; el primero cuyo SHA-256
       empiece con N ceros detiene a los dos.</p>
   </section>
 
   <!-- 3. Cadena -->
   <section class="card" id="cadena">
-    <h2>3 · Cadena de bloques</h2>
+    <h2><span class="step">3</span>Cadena de bloques</h2>
+    <p class="section-hint">Cada bloque guarda el hash del anterior; alterar uno invalida a todos los siguientes.</p>
     <div class="chain">
       {% for b in blocks %}
         {% if not loop.first %}<div class="link {{ 'link-bad' if not b.valid }}" aria-hidden="true"><span>→</span></div>{% endif %}
@@ -170,7 +188,8 @@
 
   <!-- 4. Verificación -->
   <section class="card" id="verificar">
-    <h2>4 · Verificar prioridad de un documento</h2>
+    <h2><span class="step">4</span>Verificar prioridad de un documento</h2>
+    <p class="section-hint">Pega el texto exacto: si su SHA-256 está en la cadena, se demuestra la fecha de registro.</p>
     <form method="post" action="{{ url_for('blockchain.verify') }}" class="form">
       <label>Contenido exacto a verificar<textarea name="content" rows="4" required>{{ verify_text }}</textarea></label>
       <button class="btn" type="submit">Calcular SHA-256 y buscar</button>
