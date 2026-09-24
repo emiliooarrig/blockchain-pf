@@ -2,10 +2,11 @@
 from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for
 
 from models.crypto import format_timestamp
+from models.mining import MIN_DIFFICULTY, MAX_DIFFICULTY
 
 bp = Blueprint("blockchain", __name__)
 
-MIN_DIFFICULTY, MAX_DIFFICULTY, DEFAULT_DIFFICULTY = 3, 6, 5
+DEFAULT_DIFFICULTY = 5
 
 
 def _chain():
@@ -14,6 +15,10 @@ def _chain():
 
 def _race():
     return current_app.config["MINING_RACE"]
+
+
+def _node():
+    return current_app.config["PEER_NODE"]
 
 
 def _block_view(block, validation) -> dict:
@@ -41,6 +46,8 @@ def _render_index(verify_result=None, verify_text=""):
         chain_valid=all(v["valid"] for v in validation),
         pending=pending,
         race=_race().status(),
+        network=_node().status(),
+        revision=chain.revision,
         difficulty_range=range(MIN_DIFFICULTY, MAX_DIFFICULTY + 1),
         default_difficulty=DEFAULT_DIFFICULTY,
         verify_result=verify_result,
@@ -62,6 +69,7 @@ def add_entry():
         flash("Completa investigador, título y contenido.", "error")
     else:
         entry = _chain().add_entry(researcher, title, content)
+        _node().broadcast_entry(entry)
         flash(f"Entrada registrada. SHA-256: {entry['content_hash']}", "ok")
     return redirect(url_for("blockchain.index") + "#pendientes")
 
@@ -86,9 +94,10 @@ def stop_mining():
     return redirect(url_for("blockchain.index") + "#minado")
 
 
-@bp.get("/api/mining/status")
-def mining_status():
-    return jsonify(_race().status())
+@bp.get("/api/status")
+def status():
+    """Estado del minado, de la conexión y revisión de la cadena (la vista lo consulta periódicamente)."""
+    return jsonify(race=_race().status(), network=_node().status(), revision=_chain().revision)
 
 
 @bp.post("/verify")
@@ -117,6 +126,8 @@ def tamper(index):
 def reset():
     if _race().running:
         flash("Detén el minado antes de reiniciar.", "error")
+    elif _node().connected:
+        flash("Desconéctate de la otra PC antes de reiniciar la cadena.", "error")
     else:
         _chain().reset()
         _race().clear()
