@@ -206,8 +206,8 @@ select { cursor: pointer; padding-right: 8px; }
 }
 .empty-state p { margin: 0; }
 .empty-icon {
-  width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; font-size: 1.5rem;
-  background: var(--accent-soft-2);
+  width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent-soft-2); color: var(--accent);
 }
 
 /* ---------- Minado ---------- */
@@ -237,7 +237,10 @@ select { cursor: pointer; padding-right: 8px; }
   display: inline-block; margin-top: 2px; font-size: .7rem; font-weight: 700; text-transform: uppercase;
   letter-spacing: .06em; color: var(--muted); padding: 2px 8px; border-radius: 999px; background: var(--code-bg);
 }
-.trophy { margin-left: auto; font-size: 1.7rem; visibility: hidden; }
+.trophy {
+  margin-left: auto; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+  background: var(--accent-soft-2); color: var(--accent); visibility: hidden;
+}
 .miner-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 0 14px; }
 .miner-stats > div { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; min-width: 0; }
 .miner-stats dt { font-size: .68rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
