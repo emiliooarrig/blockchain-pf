@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LabChain · Sellado de tiempo</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <div>
+    <h1>LabChain</h1>
+    <p class="subtitle">Sellado de tiempo de cuadernos de laboratorio para prioridad científica · SHA-256 + prueba de trabajo</p>
+  </div>
+  <div class="topbar-actions">
+    <span class="badge {{ 'badge-ok' if chain_valid else 'badge-bad' }}">
+      {{ 'Cadena válida' if chain_valid else 'Cadena comprometida' }} · {{ blocks|length }} bloques
+    </span>
+    <form method="post" action="{{ url_for('blockchain.reset') }}">
+      <button class="btn btn-ghost" type="submit">Reiniciar cadena</button>
+    </form>
+  </div>
+</header>
+
+<main>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+      <div class="flash flash-{{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <!-- 1. Registro de entradas -->
+  <section class="grid-2" id="pendientes">
+    <div class="card">
+      <h2>1 · Registrar entrada del cuaderno</h2>
+      <form method="post" action="{{ url_for('blockchain.add_entry') }}" class="form">
+        <label>Investigador<input name="researcher" required placeholder="Dra. Ana López"></label>
+        <label>Título del experimento<input name="title" required placeholder="Síntesis de catalizador Fe-N-C, lote 3"></label>
+        <label>Contenido / resultados<textarea name="content" rows="5" required placeholder="Procedimiento, observaciones, datos…"></textarea></label>
+        <button class="btn" type="submit">Registrar y calcular SHA-256</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Entradas pendientes de sellar <span class="count">{{ pending|length }}</span></h2>
+      {% if pending %}
+        <ul class="entry-list">
+          {% for e in pending %}
+            <li>
+              <strong>{{ e.title }}</strong> <span class="muted">— {{ e.researcher }}</span>
+              <div class="mono small">SHA-256: {{ e.content_hash }}</div>
+              <div class="small muted">Recibida: {{ e.submitted_fmt }}</div>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">No hay entradas pendientes. Registra una para poder minar un bloque.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <!-- 2. Minado -->
+  <section class="card" id="minado" data-running="{{ 'true' if race.running else 'false' }}"
+           data-status-url="{{ url_for('blockchain.mining_status') }}">
+    <div class="section-head">
+      <h2>2 · Minado: Alice vs Bob</h2>
+      <div class="mine-controls">
+        <form method="post" action="{{ url_for('blockchain.mine') }}" class="inline">
+          <label class="inline-label">Dificultad
+            <select name="difficulty">
+              {% for d in difficulty_range %}
+                <option value="{{ d }}" {{ 'selected' if d == (race.difficulty or default_difficulty) }}>{{ d }} ceros</option>
+              {% endfor %}
+            </select>
+          </label>
+          <button class="btn" type="submit" id="btn-mine" {{ 'disabled' if race.running or not pending }}>Iniciar minado</button>
+        </form>
+        <form method="post" action="{{ url_for('blockchain.stop_mining') }}" class="inline">
+          <button class="btn btn-ghost" type="submit" id="btn-stop" {{ '' if race.running else 'disabled' }}>Detener</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="race-banner" class="race-banner {{ 'show' if race.message else '' }} {{ 'win' if race.winner else '' }}">
+      {{ race.message }}
+    </div>
+
+    <div class="miners">
+      {% for m in race.miners %}
+        <div class="miner miner-{{ m.name|lower }} status-{{ m.status }}" data-miner="{{ m.name }}">
+          <div class="miner-head">
+            <div class="avatar">{{ m.name[0] }}</div>
+            <div>
+              <h3>{{ m.name }}</h3>
+              <span class="miner-status" data-field="status">{{ m.status }}</span>
+            </div>
+            <div class="trophy" aria-hidden="true">🏆</div>
+          </div>
+          <dl class="miner-stats">
+            <div><dt>Nonce</dt><dd class="mono" data-field="nonce">{{ '{:,}'.format(m.nonce) }}</dd></div>
+            <div><dt>Intentos</dt><dd class="mono" data-field="attempts">{{ '{:,}'.format(m.attempts) }}</dd></div>
+            <div><dt>Hashes/s</dt><dd class="mono" data-field="hash_rate">{{ '{:,}'.format(m.hash_rate) }}</dd></div>
+          </dl>
+          <div class="small muted">Último hash probado</div>
+          <div class="mono hash-box" data-field="last_hash">{{ m.last_hash or '—' }}</div>
+        </div>
+      {% endfor %}
+    </div>
+    <p class="small muted">Tiempo: <span id="race-elapsed" class="mono">{{ race.elapsed }}</span> s ·
+      Ambos minan la misma cabecera (mismo sello de tiempo y raíz de Merkle) con su nombre como minero; el primero cuyo SHA-256
+      empiece con N ceros detiene a los dos.</p>
+  </section>
+
+  <!-- 3. Cadena -->
+  <section class="card" id="cadena">
+    <h2>3 · Cadena de bloques</h2>
+    <div class="chain">
+      {% for b in blocks %}
+        {% if not loop.first %}<div class="link {{ 'link-bad' if not b.valid }}" aria-hidden="true"><span>→</span></div>{% endif %}
+        <article class="block {{ 'block-bad' if not b.valid }} {{ 'block-genesis' if b.index == 0 }}">
+          <header class="block-head">
+            <h3>Bloque #{{ b.index }}</h3>
+            <span class="badge {{ 'badge-ok' if b.valid else 'badge-bad' }}">{{ 'válido' if b.valid else 'inválido' }}</span>
+          </header>
+          <dl class="block-fields">
+            <dt>Sello de tiempo</dt><dd>{{ b.timestamp_fmt }}</dd>
+            <dt>Minado por</dt><dd><span class="miner-tag tag-{{ b.miner|lower }}">{{ b.miner }}</span></dd>
+            {% if b.index > 0 %}
+              <dt>Dificultad / Nonce</dt><dd class="mono">{{ b.difficulty }} / {{ '{:,}'.format(b.nonce) }}</dd>
+              <dt>Tiempo de minado</dt><dd>{{ b.mining_seconds }} s</dd>
+              {% if b.extra.race %}
+                <dt>Intentos</dt>
+                <dd class="small">{% for n, a in b.extra.race.items() %}{{ n }}: {{ '{:,}'.format(a) }}{% if not loop.last %} · {% endif %}{% endfor %}</dd>
+              {% endif %}
+            {% endif %}
+          </dl>
+          <div class="hash-label">Hash previo</div>
+          <div class="mono hash-box">{{ b.previous_hash }}</div>
+          <div class="hash-label">Raíz de Merkle</div>
+          <div class="mono hash-box">{{ b.merkle_root }}</div>
+          <div class="hash-label">Hash SHA-256</div>
+          <div class="mono hash-box hash-main"><span class="zeros">{{ b.hash_prefix }}</span>{{ b.hash_rest }}</div>
+
+          {% if b.entries %}
+            <details class="entries">
+              <summary>{{ b.entries|length }} entrada(s) sellada(s)</summary>
+              {% for e in b.entries %}
+                <div class="entry">
+                  <strong>{{ e.title }}</strong> <span class="muted">— {{ e.researcher }}</span>
+                  <p class="entry-content">{{ e.content }}</p>
+                  <div class="mono small">SHA-256: {{ e.content_hash }}</div>
+                  <div class="small muted">Recibida: {{ e.submitted_fmt }}</div>
+                </div>
+              {% endfor %}
+            </details>
+          {% endif %}
+
+          {% if b.errors %}
+            <ul class="errors">{% for err in b.errors %}<li>{{ err }}</li>{% endfor %}</ul>
+          {% endif %}
+
+          {% if b.index > 0 and b.entries %}
+            <form method="post" action="{{ url_for('blockchain.tamper', index=b.index) }}">
+              <button class="btn btn-danger btn-small" type="submit">Simular alteración</button>
+            </form>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- 4. Verificación -->
+  <section class="card" id="verificar">
+    <h2>4 · Verificar prioridad de un documento</h2>
+    <form method="post" action="{{ url_for('blockchain.verify') }}" class="form">
+      <label>Contenido exacto a verificar<textarea name="content" rows="4" required>{{ verify_text }}</textarea></label>
+      <button class="btn" type="submit">Calcular SHA-256 y buscar</button>
+    </form>
+    {% if verify_result %}
+      <div class="verify verify-{{ verify_result.status }}">
+        <div class="mono small">SHA-256 calculado: {{ verify_result.hash }}</div>
+        {% if verify_result.status == 'sellado' %}
+          <p><strong>Prioridad demostrada.</strong> «{{ verify_result.entry.title }}» de {{ verify_result.entry.researcher }}
+            está sellado en el <strong>bloque #{{ verify_result.block.index }}</strong>
+            (minado por {{ verify_result.block.miner }}) con fecha <strong>{{ verify_result.timestamp_fmt }}</strong>.</p>
+          <div class="small muted">Recibido: {{ verify_result.submitted_fmt }} · Hash del bloque:
+            <span class="mono">{{ verify_result.block.hash }}</span></div>
+        {% elif verify_result.status == 'pendiente' %}
+          <p>El documento está registrado pero <strong>aún no se ha minado</strong> en un bloque.</p>
+        {% else %}
+          <p>Este documento <strong>no está registrado</strong> en la cadena. Cualquier cambio, aunque sea de un carácter, produce otro hash.</p>
+        {% endif %}
+      </div>
+    {% endif %}
+  </section>
+</main>
+
+<script src="{{ url_for('static', filename='mining.js') }}"></script>
+</body>
+</html>
