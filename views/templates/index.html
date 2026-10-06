@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sellado de tiempo</title>
+  <title>Sellalo · Simulador de blockchain</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
@@ -13,335 +13,191 @@
 <header class="topbar">
   <div class="brand">
     <div class="brand-mark" aria-hidden="true">
-      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="8" height="10" rx="2"/><rect x="14" y="7" width="8" height="10" rx="2"/><path d="M10 12h4"/></svg>
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"/><path d="M19.27 13.73A2.5 2.5 0 0 0 17.5 13h-11A2.5 2.5 0 0 0 4 15.5V17a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1.5c0-.66-.26-1.3-.73-1.77Z"/><path d="M14 13V8.5C14 7 15 7 15 5a3 3 0 0 0-3-3c-1.66 0-3 1-3 3s1 2 1 3.5V13"/></svg>
     </div>
     <div>
-    <h1>Sellalo</h1>
-    <p class="subtitle">Sellado de tiempo de cuadernos de laboratorio para prioridad científica · SHA-256 + prueba de trabajo</p>
+      <h1>Sellalo</h1>
+      <p class="subtitle">Simulador de blockchain para el sellado de tiempo entre laboratorios · de 10 a 20 laboratorios (nodos) con transacciones firmadas (Ed25519) · cada laboratorio valida la cadena completa antes de aceptarla</p>
     </div>
   </div>
-  <div class="topbar-actions">
-    <span class="badge {{ 'badge-ok' if chain_valid else 'badge-bad' }}">
-      {{ 'Cadena válida' if chain_valid else 'Cadena comprometida' }} · {{ blocks|length }} bloques
-    </span>
-    <form method="post" action="{{ url_for('blockchain.reset') }}">
-      <button class="btn btn-on-dark" type="submit">Reiniciar cadena</button>
-    </form>
-  </div>
+  <nav class="tabs" role="tablist" aria-label="Versión">
+    <button class="tab" role="tab" data-version="pow" id="tab-pow">V1 · Proof of Work</button>
+    <button class="tab" role="tab" data-version="pos" id="tab-pos">V2 · Proof of Stake</button>
+  </nav>
 </header>
 
 <main>
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% for cat, msg in messages %}
-      <div class="flash flash-{{ cat }}">{{ msg }}</div>
-    {% endfor %}
-  {% endwith %}
+  <div id="sync-banner" class="sync-banner" aria-live="polite"></div>
 
-  <!-- 1. Registro de entradas -->
-  <section class="grid-2" id="pendientes">
+  <!-- Configuración + transacciones -->
+  <section class="grid-2">
     <div class="card">
-      <h2><span class="step">1</span>Registrar entrada del cuaderno</h2>
-      <p class="section-hint">El contenido se resume con SHA-256 y recibe un sello de tiempo UTC.</p>
-      <form method="post" action="{{ url_for('blockchain.add_entry') }}" class="form">
-        <label>Investigador<input name="researcher" required placeholder="Dra. Ana López"></label>
-        <label>Título del experimento<input name="title" required placeholder="Síntesis de catalizador Fe-N-C, lote 3"></label>
-        <label>Contenido / resultados<textarea name="content" rows="5" required placeholder="Procedimiento, observaciones, datos…"></textarea></label>
-        <button class="btn" type="submit">Registrar proyecto </button>
+      <h2><span class="step">1</span>Red de laboratorios</h2>
+      <p class="section-hint">Cada laboratorio es un nodo de la red. Crea o reinicia la simulación de esta versión; N debe estar entre 10 y 20.</p>
+      <form id="form-red" class="form form-grid" novalidate>
+        <label>Laboratorios (N)<input name="n" type="number" min="10" max="20" value="10" required></label>
+        <label>Semilla<input name="semilla" type="number" min="0" value="2026"></label>
+        <label>Créditos de sellado iniciales<input name="saldo_inicial" type="number" min="1" value="100"></label>
+        <label>Recompensa por bloque (créditos)<input name="recompensa" type="number" min="1" value="50"></label>
+        <label class="check"><input name="reproducible" type="checkbox"> Modo reproducible (reloj simulado: con la misma semilla la simulación se repite igual)</label>
+        <button class="btn" type="submit">Crear / reiniciar simulación</button>
       </form>
+      <dl class="kv" id="red-resumen"></dl>
     </div>
+
     <div class="card">
-      <h2>Entradas pendientes de sellar <span class="count">{{ pending|length }}</span></h2>
-      <p class="section-hint">Se incluirán en el próximo bloque que se mine.</p>
-      {% if pending %}
-        <ul class="entry-list">
-          {% for e in pending %}
-            <li>
-              <strong>{{ e.title }}</strong> <span class="muted">— {{ e.researcher }}</span>
-              <div class="mono small">SHA-256: {{ e.content_hash }}</div>
-              <div class="small muted">Recibida: {{ e.submitted_fmt }}</div>
-            </li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        <div class="empty-state">
-          <div class="empty-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M16 2v20"/></svg>
-          </div>
-          <p>No hay entradas pendientes.<br><span class="muted">Registra una para poder minar un bloque.</span></p>
+      <h2><span class="step">2</span>Transferencia de créditos firmada</h2>
+      <p class="section-hint">El laboratorio emisor firma <span class="mono">{emisor, receptor, monto, timestamp}</span> con su clave privada; la red la verifica con su clave pública.</p>
+      <form id="form-tx" class="form form-grid" novalidate>
+        <label>Laboratorio emisor<select name="emisor" required></select></label>
+        <label>Laboratorio receptor<select name="receptor" required></select></label>
+        <label>Créditos<input name="monto" type="number" min="1" step="1" placeholder="10" required></label>
+        <div class="row-buttons">
+          <button class="btn" type="submit">Firmar y enviar</button>
+          <button class="btn btn-ghost" type="button" data-accion="tx-aleatoria">Generar 3 aleatorias</button>
         </div>
-      {% endif %}
+      </form>
+      <h3 class="subhead">Pendientes <span class="count" id="pend-count">0</span></h3>
+      <ul class="tx-list" id="pendientes"></ul>
     </div>
   </section>
 
-  <!-- 2. Conexión TCP/IP -->
-  {% set net = network %}
-  <section class="card" id="conexion">
+  <!-- PoW -->
+  <section class="card" id="panel-pow" hidden>
     <div class="section-head">
       <div>
-        <h2><span class="step">2</span>Conexión TCP/IP con la otra PC</h2>
-        <p class="section-hint">Conecta esta PC con la de tu compañero dentro de la misma red. El minado se habilita solo cuando la conexión es exitosa.</p>
+        <h2><span class="step">3</span>Minado: competencia entre los N laboratorios</h2>
+        <p class="section-hint">Por ronda, el laboratorio minero <span class="mono">i</span> prueba <span class="mono">k</span> nonces de su secuencia <span class="mono">i, i+N, i+2N…</span> (nonces disjuntos). Si varios encuentran un hash válido en la misma ronda, <strong>gana el hash menor</strong>.</p>
       </div>
-      <span class="badge {{ 'badge-ok' if net.connected else ('badge-bad' if net.last_error or net.listen_error else 'badge-idle') }}">
-        {{ 'Conectado' if net.connected else 'Desconectado' }}
-      </span>
+      <span class="badge" id="pow-badge">inactivo</span>
     </div>
-
-    <!-- Esquema de conexión -->
-    <div class="net-diagram {{ 'is-connected' if net.connected else '' }}">
-      <div class="net-node">
-        <div class="net-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
-        </div>
-        <div class="net-role">Esta PC</div>
-        <div class="net-name {{ 'tag-' ~ net.identity|lower if net.identity }}">{{ net.identity or 'Sin identidad' }}</div>
-        <div class="mono small">{{ net.local_ips[0] }}:{{ net.listen_port }}</div>
+    <form id="form-minar" class="form mine-form" novalidate>
+      <label>Dificultad (ceros)<input name="dificultad" type="number" min="1" max="6" value="3"></label>
+      <label>Nonces por minero y ronda (k)<input name="nonces_por_ronda" type="number" min="1" max="5000" value="100"></label>
+      <label>Límite de rondas<input name="max_rondas" type="number" min="1" max="100000" value="2000"></label>
+      <label>Bloques seguidos<input name="bloques" type="number" min="1" max="50" value="1"></label>
+      <label>Pausa entre rondas (ms)<input name="pausa_ms" type="number" min="0" max="2000" value="120"></label>
+      <label class="check"><input name="auto_transacciones" type="checkbox" checked> Generar transacciones automáticas si faltan</label>
+      <div class="row-buttons">
+        <button class="btn" type="submit" id="btn-minar">Iniciar minado</button>
+        <button class="btn btn-ghost" type="button" data-accion="minar-10">Minar 10 bloques seguidos</button>
+        <button class="btn btn-danger" type="button" data-accion="cancelar-minado" id="btn-cancelar">Cancelar</button>
       </div>
-      <div class="net-link">
-        <div class="net-line"><span class="net-packet"></span></div>
-        <div class="net-link-label">
-          {% if net.connected %}
-            TCP · <span id="net-latency">{{ net.latency_ms if net.latency_ms is not none else '…' }}</span> ms
-          {% else %}
-            Sin conexión
-          {% endif %}
-        </div>
-      </div>
-      <div class="net-node {{ '' if net.connected else 'is-empty' }}">
-        <div class="net-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
-        </div>
-        <div class="net-role">PC remota</div>
-        <div class="net-name {{ 'tag-' ~ net.remote_identity|lower if net.remote_identity }}">{{ net.remote_identity or '—' }}</div>
-        <div class="mono small">{{ (net.peer.ip ~ ':' ~ net.peer.port) if net.connected else 'IP:puerto' }}</div>
-      </div>
-    </div>
-
-    {% if net.listen_error %}<div class="flash flash-error">{{ net.listen_error }}</div>{% endif %}
-    {% if net.last_error and not net.connected %}<div class="flash flash-error">{{ net.last_error }}</div>{% endif %}
-
-    <div class="net-steps">
-      <div class="net-step">
-        <h3>a · Identidad de esta PC</h3>
-        <form method="post" action="{{ url_for('network.set_identity') }}" class="segmented" role="group" aria-label="Identidad">
-          {% for name in ('Alice', 'Bob') %}
-            <button type="submit" name="identity" value="{{ name }}"
-                    class="segment {{ 'is-active' if net.identity == name }}" {{ 'disabled' if net.connected }}
-                    aria-pressed="{{ 'true' if net.identity == name else 'false' }}">{{ name }}</button>
-          {% endfor %}
-        </form>
-        <p class="small muted">La otra PC debe ser la contraria. Si aún no elige, se le asigna sola al recibir la conexión.</p>
-      </div>
-
-      <div class="net-step">
-        <h3>b · Comparte estos datos</h3>
-        <dl class="net-share">
-          <dt>IP de esta PC</dt>
-          <dd class="mono">{{ net.local_ips|join(' · ') }}</dd>
-          <dt>Puerto TCP</dt>
-          <dd class="mono">{{ net.listen_port }}</dd>
-        </dl>
-        <p class="small muted">{{ 'Esperando conexiones entrantes.' if net.listening else 'El servidor TCP no está activo.' }}
-          Solo una de las dos PCs necesita conectarse a la otra.</p>
-      </div>
-
-      <div class="net-step">
-        <h3>c · {{ 'Conexión activa' if net.connected else 'Conectar con la otra PC' }}</h3>
-        {% if net.connected %}
-          <dl class="net-share">
-            <dt>Par</dt><dd>{{ net.remote_identity }} · <span class="mono">{{ net.peer.ip }}:{{ net.peer.port }}</span></dd>
-            <dt>Sentido</dt><dd>{{ net.peer.direction|capitalize }}</dd>
-            <dt>Desde</dt><dd>{{ net.connected_since }}</dd>
-          </dl>
-          <form method="post" action="{{ url_for('network.disconnect') }}">
-            <button class="btn btn-ghost" type="submit" {{ 'disabled' if race.running }}>Desconectar</button>
-          </form>
-        {% else %}
-          <form method="post" action="{{ url_for('network.connect') }}" class="form net-form">
-            <div class="net-form-row">
-              <label>IP de la otra PC<input name="ip" required inputmode="decimal" placeholder="192.168.1.20" autocomplete="off"></label>
-              <label class="port-field">Puerto<input name="port" type="number" min="1" max="65535" value="{{ net.default_peer_port }}"></label>
-            </div>
-            <button class="btn" type="submit" {{ 'disabled' if not net.identity or not net.listening }}>Conectar</button>
-            {% if not net.identity %}<p class="small muted">Primero elige la identidad de esta PC.</p>{% endif %}
-          </form>
-        {% endif %}
-      </div>
-    </div>
-
-    <details class="net-log" {{ 'open' if not net.connected }}>
-      <summary>Registro de la conexión</summary>
-      <ol id="net-events">
-        {% for ev in net.events %}
-          <li><span class="mono">{{ ev.time }}</span> {{ ev.text }}</li>
-        {% else %}
-          <li class="muted">Sin eventos.</li>
-        {% endfor %}
-      </ol>
-    </details>
-  </section>
-
-  <!-- 3. Minado -->
-  <section class="card" id="minado" data-running="{{ 'true' if race.running else 'false' }}"
-           data-connected="{{ 'true' if net.connected else 'false' }}"
-           data-identity="{{ net.identity or '' }}"
-           data-revision="{{ revision }}"
-           data-verify="{{ 'true' if verify_result else 'false' }}"
-           data-status-url="{{ url_for('blockchain.status') }}">
-    <div class="section-head">
-      <div>
-        <h2><span class="step">3</span>Minado: Alice vs Bob</h2>
-        <p class="section-hint">Cada PC mina con su propio minero. Gana quien encuentre primero un hash con N ceros iniciales.</p>
-      </div>
-      <div class="mine-controls">
-        <form method="post" action="{{ url_for('blockchain.mine') }}" class="inline">
-          <label class="inline-label">Dificultad
-            <select name="difficulty" {{ 'disabled' if not net.connected }}>
-              {% for d in difficulty_range %}
-                <option value="{{ d }}" {{ 'selected' if d == (race.difficulty or default_difficulty) }}>{{ d }} ceros</option>
-              {% endfor %}
-            </select>
-          </label>
-          <button class="btn" type="submit" id="btn-mine" {{ 'disabled' if race.running or not pending or not net.connected }}>Iniciar minado</button>
-        </form>
-        <form method="post" action="{{ url_for('blockchain.stop_mining') }}" class="inline">
-          <button class="btn btn-ghost" type="submit" id="btn-stop" {{ '' if race.running else 'disabled' }}>Detener</button>
-        </form>
-      </div>
-    </div>
-
-    {% if not net.connected %}
-      <div class="locked">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        <span>Minado bloqueado. Conecta esta PC con la otra en el <a href="#conexion">paso 2</a> para habilitarlo.</span>
-      </div>
-    {% endif %}
-
-    <div id="race-banner" class="race-banner {{ 'show' if race.message else '' }} {{ 'win' if race.winner else '' }}">
-      {{ race.message }}
-    </div>
-
-    <div class="miners">
-      {% for m in race.miners %}
-        {% if not loop.first %}<div class="versus" aria-hidden="true">VS</div>{% endif %}
-        <div class="miner miner-{{ m.name|lower }} status-{{ m.status }}" data-miner="{{ m.name }}">
-          <div class="miner-head">
-            <div class="avatar">{{ m.name[0] }}</div>
-            <div>
-              <h3>{{ m.name }}
-                {% if m.location %}<span class="location-chip">{{ 'Esta PC' if m.location == 'local' else 'PC remota' }}</span>{% endif %}
-              </h3>
-              <span class="miner-status" data-field="status">{{ m.status }}</span>
-            </div>
-            <div class="trophy" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
-            </div>
-          </div>
-          <dl class="miner-stats">
-            <div><dt>Nonce</dt><dd class="mono" data-field="nonce">{{ '{:,}'.format(m.nonce) }}</dd></div>
-            <div><dt>Intentos</dt><dd class="mono" data-field="attempts">{{ '{:,}'.format(m.attempts) }}</dd></div>
-            <div><dt>Hashes/s</dt><dd class="mono" data-field="hash_rate">{{ '{:,}'.format(m.hash_rate) }}</dd></div>
-          </dl>
-          <div class="small muted">Último hash probado</div>
-          <div class="mono hash-box" data-field="last_hash">{{ m.last_hash or '—' }}</div>
-        </div>
-      {% endfor %}
-    </div>
-    <p class="small muted race-foot">Tiempo: <span id="race-elapsed" class="mono">{{ race.elapsed }}</span> s ·
-      Ambas PCs minan la misma cabecera (mismo sello de tiempo y raíz de Merkle) con su nombre como minero. La primera que
-      encuentra el hash lo envía por TCP y la otra se detiene; si coinciden casi al mismo tiempo, se conserva el bloque de hash menor.</p>
-  </section>
-
-  <div id="stale-banner" class="stale-banner" hidden>
-    <span>Hay cambios nuevos (de esta PC o de la otra).</span>
-    <button class="btn btn-small" type="button" id="btn-refresh">Actualizar</button>
-  </div>
-
-  <!-- 4. Cadena -->
-  <section class="card" id="cadena">
-    <h2><span class="step">4</span>Cadena de bloques</h2>
-    <p class="section-hint">Cada bloque guarda el hash del anterior; alterar uno invalida a todos los siguientes.</p>
-    <div class="chain">
-      {% for b in blocks %}
-        {% if not loop.first %}<div class="link {{ 'link-bad' if not b.valid }}" aria-hidden="true"><span>→</span></div>{% endif %}
-        <article class="block {{ 'block-bad' if not b.valid }} {{ 'block-genesis' if b.index == 0 }}">
-          <header class="block-head">
-            <h3>Bloque #{{ b.index }}</h3>
-            <span class="badge {{ 'badge-ok' if b.valid else 'badge-bad' }}">{{ 'válido' if b.valid else 'inválido' }}</span>
-          </header>
-          <dl class="block-fields">
-            <dt>Sello de tiempo</dt><dd>{{ b.timestamp_fmt }}</dd>
-            <dt>Minado por</dt><dd><span class="miner-tag tag-{{ b.miner|lower }}">{{ b.miner }}</span></dd>
-            {% if b.index > 0 %}
-              <dt>Dificultad / Nonce</dt><dd class="mono">{{ b.difficulty }} / {{ '{:,}'.format(b.nonce) }}</dd>
-              <dt>Tiempo de minado</dt><dd>{{ b.mining_seconds }} s</dd>
-              {% if b.extra.race %}
-                <dt>Intentos</dt>
-                <dd class="small">{% for n, a in b.extra.race.items() %}{{ n }}: {{ '{:,}'.format(a) }}{% if not loop.last %} · {% endif %}{% endfor %}</dd>
-              {% endif %}
-            {% endif %}
-          </dl>
-          <div class="hash-label">Hash previo</div>
-          <div class="mono hash-box">{{ b.previous_hash }}</div>
-          <div class="hash-label">Raíz de Merkle</div>
-          <div class="mono hash-box">{{ b.merkle_root }}</div>
-          <div class="hash-label">Hash SHA-256</div>
-          <div class="mono hash-box hash-main"><span class="zeros">{{ b.hash_prefix }}</span>{{ b.hash_rest }}</div>
-
-          {% if b.entries %}
-            <details class="entries">
-              <summary>{{ b.entries|length }} entrada(s) sellada(s)</summary>
-              {% for e in b.entries %}
-                <div class="entry">
-                  <strong>{{ e.title }}</strong> <span class="muted">— {{ e.researcher }}</span>
-                  <p class="entry-content">{{ e.content }}</p>
-                  <div class="mono small">SHA-256: {{ e.content_hash }}</div>
-                  <div class="small muted">Recibida: {{ e.submitted_fmt }}</div>
-                </div>
-              {% endfor %}
-            </details>
-          {% endif %}
-
-          {% if b.errors %}
-            <ul class="errors">{% for err in b.errors %}<li>{{ err }}</li>{% endfor %}</ul>
-          {% endif %}
-
-          {% if b.index > 0 and b.entries %}
-            <form method="post" action="{{ url_for('blockchain.tamper', index=b.index) }}">
-              <button class="btn btn-danger btn-small" type="submit">Simular alteración</button>
-            </form>
-          {% endif %}
-        </article>
-      {% endfor %}
-    </div>
-  </section>
-
-  <!-- 5. Verificación -->
-  <section class="card" id="verificar">
-    <h2><span class="step">5</span>Verificar prioridad de un documento</h2>
-    <p class="section-hint">Pega el texto exacto: si su SHA-256 está en la cadena, se demuestra la fecha de registro.</p>
-    <form method="post" action="{{ url_for('blockchain.verify') }}" class="form">
-      <label>Contenido exacto a verificar<textarea name="content" rows="4" required>{{ verify_text }}</textarea></label>
-      <button class="btn" type="submit">Calcular SHA-256 y buscar</button>
     </form>
-    {% if verify_result %}
-      <div class="verify verify-{{ verify_result.status }}">
-        <div class="mono small">SHA-256 calculado: {{ verify_result.hash }}</div>
-        {% if verify_result.status == 'sellado' %}
-          <p><strong>Prioridad demostrada.</strong> «{{ verify_result.entry.title }}» de {{ verify_result.entry.researcher }}
-            está sellado en el <strong>bloque #{{ verify_result.block.index }}</strong>
-            (minado por {{ verify_result.block.miner }}) con fecha <strong>{{ verify_result.timestamp_fmt }}</strong>.</p>
-          <div class="small muted">Recibido: {{ verify_result.submitted_fmt }} · Hash del bloque:
-            <span class="mono">{{ verify_result.block.hash }}</span></div>
-        {% elif verify_result.status == 'pendiente' %}
-          <p>El documento está registrado pero <strong>aún no se ha minado</strong> en un bloque.</p>
-        {% else %}
-          <p>Este documento <strong>no está registrado</strong> en la cadena. Cualquier cambio, aunque sea de un carácter, produce otro hash.</p>
-        {% endif %}
+    <div class="race-banner" id="pow-mensaje"></div>
+    <div class="pow-meta" id="pow-meta"></div>
+    <div class="miners-grid" id="mineros"></div>
+  </section>
+
+  <!-- PoS -->
+  <section class="card" id="panel-pos" hidden>
+    <div class="section-head">
+      <div>
+        <h2><span class="step">3</span>Ronda de Proof of Stake</h2>
+        <p class="section-hint">Los laboratorios validadores apuestan créditos; el proponente se sortea con probabilidad <span class="mono">aᵢ/A</span> usando la semilla pública <span class="mono">hash_anterior|número|intento</span>. El bloque se acepta si <span class="mono">3V ≥ 2A</span>.</p>
       </div>
-    {% endif %}
+      <span class="badge" id="pos-badge">sin ronda</span>
+    </div>
+    <ol class="stepper" id="pos-stepper"></ol>
+    <div class="grid-pos">
+      <form id="form-pos-config" class="form" novalidate>
+        <h3>Configuración</h3>
+        <label>Tamaño del comité (0 = todos los laboratorios con créditos)<input name="tam_comite" type="number" min="0" max="20" value="0"></label>
+        <label>Regla de castigo
+          <select name="regla">
+            <option value="A">A · c = apuesta completa</option>
+            <option value="B">B · c = min(apuesta, α · valor de las tx)</option>
+          </select>
+        </label>
+        <label>α (%) para la regla B<input name="alfa_pct" type="number" min="1" max="100" value="50"></label>
+        <label>Fraude del laboratorio deshonesto
+          <select name="fraude">
+            <option value="firma">Firma alterada</option>
+            <option value="gasto">Gasto mayor a sus créditos</option>
+          </select>
+        </label>
+        <button class="btn btn-ghost" type="submit">Guardar configuración</button>
+      </form>
+      <div>
+        <h3>Acciones de la ronda</h3>
+        <div class="pos-actions">
+          <button class="btn" type="button" data-accion="pos-ronda">1 · Iniciar ronda</button>
+          <button class="btn btn-ghost" type="button" data-accion="pos-apuestas">2 · Apuestas automáticas</button>
+          <button class="btn" type="button" data-accion="pos-sortear">3 · Sortear proponente</button>
+          <button class="btn" type="button" data-accion="pos-candidato">4 · Construir candidato</button>
+          <button class="btn btn-ghost" type="button" data-accion="pos-votacion">5 · Votación automática</button>
+          <button class="btn" type="button" data-accion="pos-cerrar">6 · Cerrar votación</button>
+          <button class="btn btn-accent" type="button" data-accion="pos-auto">Ronda automática completa</button>
+          <button class="btn btn-danger" type="button" data-accion="pos-cancelar">Cancelar ronda</button>
+        </div>
+        <div class="race-banner" id="pos-mensaje"></div>
+        <div class="vote-meter" id="vote-meter"></div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="table" id="tabla-validadores">
+        <thead><tr><th>Laboratorio validador</th><th>Disponible</th><th>Apuesta</th><th>Probabilidad</th><th>Papel</th><th>Voto</th><th>Acciones</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div id="pos-candidato"></div>
+    <div id="pos-historial"></div>
+  </section>
+
+  <!-- Laboratorios -->
+  <section class="card">
+    <div class="section-head">
+      <div>
+        <h2><span class="step">4</span>Estado de cada laboratorio</h2>
+        <p class="section-hint">Cada laboratorio (nodo) guarda su propia copia de la cadena. Están sincronizados cuando coinciden la altura y el hash del último bloque.</p>
+      </div>
+      <span class="badge" id="sync-badge"></span>
+    </div>
+    <div class="table-wrap">
+      <table class="table" id="tabla-nodos">
+        <thead><tr id="nodos-head"></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Cadena -->
+  <section class="card">
+    <div class="section-head">
+      <div>
+        <h2><span class="step">5</span>Cadena de bloques</h2>
+        <p class="section-hint">Se muestran los últimos bloques de la copia del laboratorio elegido.</p>
+      </div>
+      <label class="inline-label">Copia del laboratorio <select id="cadena-nodo"></select></label>
+    </div>
+    <div class="chain" id="cadena"></div>
+  </section>
+
+  <section class="grid-2">
+    <!-- Casos -->
+    <div class="card">
+      <h2><span class="step">6</span>Casos de prueba y ataques</h2>
+      <p class="section-hint">Un laboratorio atacante fabrica una cadena o transacción inválida y la envía a la red. Ninguna cadena real se modifica: cada laboratorio la valida y la rechaza.</p>
+      <label class="inline-label">Laboratorio atacante / emisor <select id="ataque-nodo"></select></label>
+      <h3 class="subhead">Cadena</h3>
+      <div class="case-grid" id="casos-cadena"></div>
+      <h3 class="subhead">Transacciones</h3>
+      <div class="case-grid" id="casos-tx"></div>
+      <h3 class="subhead">Recompensas</h3>
+      <div class="table-wrap small-table"><table class="table" id="tabla-recompensas">
+        <thead><tr><th>Bloque</th><th>Laboratorio</th><th>Créditos</th><th>Confirmaciones</th><th>Estado</th></tr></thead><tbody></tbody>
+      </table></div>
+    </div>
+    <!-- Bitácora -->
+    <div class="card">
+      <h2><span class="step">7</span>Bitácora de eventos</h2>
+      <p class="section-hint">Bloques, difusiones, rechazos, castigos y recompensas acreditadas.</p>
+      <ol class="log" id="bitacora"></ol>
+    </div>
   </section>
 </main>
 
-<script src="{{ url_for('static', filename='mining.js') }}"></script>
+<div id="toasts" class="toasts" aria-live="assertive"></div>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
