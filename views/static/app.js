@@ -382,9 +382,9 @@
     if (!r.ok) return;
     ui.cadenaClave = clave;
     const cont = $("#cadena");
-    const bloques = r.bloques.map((b, i) => [i ? h("div", { class: "link", "aria-hidden": "true" }, "→") : null, bloque(b)]);
+    const bloques = r.bloques.flatMap((b, i) => (i ? [h("div", { class: "link", "aria-hidden": "true" }, "→"), bloque(b)] : [bloque(b)]));
     const extra = r.desde > 0 ? [h("div", { class: "chain-more" }, `… ${r.desde} bloque(s) anteriores`)] : [];
-    cont.replaceChildren(...extra, ...bloques.flat());
+    cont.replaceChildren(...extra, ...bloques);
     cont.scrollLeft = cont.scrollWidth;
   }
 
