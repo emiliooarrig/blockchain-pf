@@ -13,6 +13,7 @@ from collections import deque
 from models.bloque import (MAX_TX_POR_BLOQUE, MONTO_MAX, Estado, ErrorValidacion, crear_genesis, es_entero,
                            id_transaccion, nueva_transaccion, revisar_transaccion)
 from models.cripto import ParClaves
+from models.keystore import derivar_claves
 from models.errores import ErrorEntrada, ErrorEstado
 from models.pos import MotorPoS
 from models.pow import MotorPoW
@@ -116,7 +117,7 @@ class Nodo:
 
 class Red:
     def __init__(self, consenso: str, n: int, semilla: int, saldo_inicial: int, recompensa: int,
-                 reproducible: bool = False):
+                 reproducible: bool = False, contrasena: str | None = None):
         if consenso not in ("pow", "pos"):
             raise ErrorEntrada("El consenso debe ser «pow» o «pos».")
         _rango(n, N_MIN, N_MAX, "El número de nodos N")
@@ -134,7 +135,10 @@ class Red:
         self.revision = 0
         self.pendientes: list[dict] = []
 
-        claves = [ParClaves(f"{semilla}|{consenso}|nodo|{i}") for i in range(n)]
+        if contrasena is None:
+            claves = [ParClaves.generar() for _ in range(n)]
+        else:
+            claves = [derivar_claves(contrasena, f"sellalo-sim|{semilla}|{consenso}|nodo|{i}") for i in range(n)]
         ids = [f"N{i:02d}" for i in range(n)]
         cuentas = {nid: {"clave_publica": c.publica, "saldo": saldo_inicial} for nid, c in zip(ids, claves)}
         parametros = {"consenso": consenso, "recompensa": recompensa,

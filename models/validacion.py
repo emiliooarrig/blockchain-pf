@@ -47,8 +47,8 @@ def validar_bloque(estado: Estado, bloque, propuesta: bool = False) -> list:
             raise ErrorValidacion("en PoS el nonce debe ser 0")
         verificar_pos(estado, bloque, con_votos=not propuesta)
     else:
-        verificar_pow(bloque)
-    aplicar_transacciones(estado, bloque["transacciones"])
+        verificar_pow(estado, bloque)
+    aplicar_transacciones(estado, bloque["transacciones"], bloque["numero"])
 
     estado.recompensas.append({"numero": bloque["numero"], "nodo": bloque["proponente"], "monto": bloque["recompensa"]})
     estado.altura = bloque["numero"]

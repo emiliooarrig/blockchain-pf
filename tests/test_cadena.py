@@ -119,11 +119,13 @@ def test_bloque_con_campo_extra_o_faltante(red_con_bloques):
 def test_bloque_sin_transacciones_se_rechaza(red_pow):
     from models.pow import cumple_objetivo
     from models.bloque import preparar_hasher
+    from models.merkle import raiz_transacciones
     tope = red_pow.referencia().cadena[-1]
-    b = {"numero": 1, "timestamp": red_pow.reloj(), "transacciones": [], "hash_anterior": tope["hash"], "nonce": 0,
-         "proponente": "N01", "recompensa": 50, "dificultad": 1}
+    b = {"numero": 1, "timestamp": red_pow.reloj(), "transacciones": [], "hash_anterior": tope["hash"],
+         "raiz_merkle": raiz_transacciones([]), "nonce": 0, "proponente": "N01", "recompensa": 50, "dificultad": 1}
     calc = preparar_hasher(b)
     b["nonce"] = next(i for i in range(10_000) if cumple_objetivo(calc(i), 1))
     b["hash"] = hash_bloque(b)
+    b["firma_minero"] = red_pow.nodos[1].claves.firmar(bytes.fromhex(b["hash"]))
     ok, motivo = red_pow.nodos[0].recibir_cadena(red_pow.nodos[0].cadena + [b])
     assert not ok and "no contiene transacciones" in motivo

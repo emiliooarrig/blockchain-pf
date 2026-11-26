@@ -5,7 +5,7 @@ from functools import lru_cache
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
-from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat, PublicFormat
 
 LARGO_CLAVE_HEX = 64    # 32 bytes
 LARGO_FIRMA_HEX = 128   # 64 bytes
@@ -27,14 +27,33 @@ def es_hex(valor, largo: int) -> bool:
 
 
 class ParClaves:
-    """Par de claves Ed25519. La clave privada se deriva de una semilla para que la simulación sea reproducible."""
+    """Par de claves Ed25519. La clave privada nunca se muestra, ni en repr ni en serializaciones."""
 
-    def __init__(self, semilla: str):
-        self._privada = Ed25519PrivateKey.from_private_bytes(hashlib.sha256(semilla.encode("utf-8")).digest())
-        self.publica = self._privada.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
+    __slots__ = ("_privada", "publica")
+
+    def __init__(self, privada: Ed25519PrivateKey):
+        if not isinstance(privada, Ed25519PrivateKey):
+            raise TypeError("ParClaves necesita una Ed25519PrivateKey")
+        self._privada = privada
+        self.publica = privada.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
+
+    @classmethod
+    def generar(cls) -> "ParClaves":
+        return cls(Ed25519PrivateKey.generate())
+
+    @classmethod
+    def desde_bytes(cls, privada: bytes) -> "ParClaves":
+        return cls(Ed25519PrivateKey.from_private_bytes(privada))
+
+    def bytes_privados(self) -> bytes:
+        """Los 32 bytes crudos de la clave privada; sólo para cifrarlos en el almacén de claves."""
+        return self._privada.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
 
     def firmar(self, datos: bytes) -> str:
         return self._privada.sign(datos).hex()
+
+    def __repr__(self) -> str:
+        return f"ParClaves(publica={self.publica[:16]}…)"
 
 
 @lru_cache(maxsize=262_144)

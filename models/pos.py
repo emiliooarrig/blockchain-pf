@@ -11,6 +11,7 @@ los castigos y el umbral de 2/3 al validar la cadena completa.
 """
 import hashlib
 
+from models import merkle
 from models.bloque import (MAX_TX_POR_BLOQUE, MONTO_MAX, ErrorValidacion, copiar, es_entero, hash_bloque,
                            nueva_transaccion)
 from models.cripto import LARGO_FIRMA_HEX, canonico, es_hex, sha256_hex, verificar
@@ -313,7 +314,7 @@ class MotorPoS:
             bloque = {
                 "numero": r["numero"], "timestamp": red.reloj(),
                 "transacciones": copiar(red.pendientes[:MAX_TX_POR_BLOQUE]),
-                "hash_anterior": r["hash_anterior"], "nonce": 0, "proponente": proponente.id,
+                "hash_anterior": r["hash_anterior"], "raiz_merkle": "", "nonce": 0, "proponente": proponente.id,
                 "recompensa": red.referencia().estado.params["recompensa"],
                 "validadores": copiar(r["comite"]), "intento": r["intento"], "excluidos": list(r["excluidos"]),
                 "castigos": copiar(self.castigos_pendientes) + copiar(r["castigos"]),
@@ -322,6 +323,7 @@ class MotorPoS:
             fraude = ""
             if proponente.deshonesto:
                 fraude = self._cometer_fraude(bloque, proponente)
+            bloque["raiz_merkle"] = merkle.raiz_transacciones(bloque["transacciones"])
             bloque["firma_proponente"] = proponente.claves.firmar(mensaje_propuesta(bloque))
             r["candidato"] = bloque
             r["hash_propuesta"] = sha256_hex(mensaje_propuesta(bloque))
