@@ -6,6 +6,7 @@ import argparse
 import json
 import logging
 import os
+from urllib.parse import urlsplit
 
 from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
@@ -30,13 +31,33 @@ MENSAJES_HTTP = {
 MAX_DOCUMENTO = 25 * 1024 * 1024     # modo nodo: documentos y certificados (el contenido nunca se guarda)
 
 
-def create_app(reproducible: bool = False, contrasena: str | None = None, contexto_nodo: ContextoNodo | None = None) -> Flask:
-    """Modo simulador por defecto; con `contexto_nodo` (ver create_app_nodo) es un nodo de la red Sellalo."""
+HOSTS_LOCALES = {"127.0.0.1", "localhost", "[::1]"}
+METODOS_SEGUROS = {"GET", "HEAD", "OPTIONS"}
+
+
+def _nombre_host(netloc: str) -> str:
+    """«host:puerto» -> «host» en minúsculas (conserva los corchetes de IPv6)."""
+    netloc = netloc.strip().lower()
+    if netloc.startswith("["):
+        return netloc[:netloc.find("]") + 1] if "]" in netloc else netloc
+    return netloc.rsplit(":", 1)[0] if ":" in netloc else netloc
+
+
+def create_app(reproducible: bool = False, contrasena: str | None = None, contexto_nodo: ContextoNodo | None = None,
+               host_http: str | None = None, laboratorio_ataques: bool = False) -> Flask:
+    """Modo simulador por defecto; con `contexto_nodo` (ver create_app_nodo) es un nodo de la red Sellalo.
+
+    `host_http` es el --host configurado (además de los locales). `laboratorio_ataques` habilita en modo nodo el
+    endpoint de ataques de demostración (AUD-017)."""
     app = Flask(__name__,
                 template_folder=os.path.join(BASE_DIR, "views", "templates"),
                 static_folder=os.path.join(BASE_DIR, "views", "static"))
     app.config["MAX_CONTENT_LENGTH"] = MAX_DOCUMENTO if contexto_nodo else 64 * 1024
     app.config["CONTEXTO_NODO"] = contexto_nodo
+    app.config["LABORATORIO_ATAQUES"] = laboratorio_ataques
+    hosts_permitidos = set(HOSTS_LOCALES)
+    if host_http and host_http not in ("0.0.0.0", "::"):
+        hosts_permitidos.add(host_http.lower() if host_http.count(":") < 2 else f"[{host_http.strip('[]').lower()}]")
     app.config["JSON_SORT_KEYS"] = False
     app.json.sort_keys = False
     app.json.ensure_ascii = False
@@ -44,6 +65,23 @@ def create_app(reproducible: bool = False, contrasena: str | None = None, contex
     app.register_blueprint(paginas_nodo if contexto_nodo else paginas)
     app.register_blueprint(api)
     app.register_blueprint(sellalo)
+
+    @app.before_request
+    def proteger_escrituras():
+        """Defensa CSRF y DNS rebinding para toda escritura bajo /api/ (AUD-003). Los clientes sin navegador (curl,
+        pruebas, demo) no envían Origin ni Sec-Fetch-Site y se permiten."""
+        if request.method in METODOS_SEGUROS or not request.path.startswith("/api/"):
+            return None
+        if _nombre_host(request.host) not in hosts_permitidos:
+            return jsonify(ok=False, error="Host no permitido: usa la dirección local del nodo."), 403
+        origen = request.headers.get("Origin")
+        if origen is not None:
+            partes = urlsplit(origen)
+            if partes.scheme not in ("http", "https") or partes.netloc.lower() != request.host.lower():
+                return jsonify(ok=False, error="Origen no permitido: la petición no viene de la interfaz del nodo."), 403
+        if request.headers.get("Sec-Fetch-Site", "").lower() in ("cross-site", "same-site"):
+            return jsonify(ok=False, error="Petición entre sitios rechazada."), 403
+        return None
 
     @app.errorhandler(ErrorEntrada)
     def error_entrada(exc: ErrorEntrada):
@@ -82,7 +120,8 @@ def parsear_pares(texto: str | None) -> list[tuple[str, int]]:
 
 def create_app_nodo(dir_datos: str, ruta_genesis: str, nodo_id: str, puerto_p2p: int = 6000,
                     pares: list[tuple[str, int]] | None = None, ruta_clave: str | None = None,
-                    host_p2p: str = "0.0.0.0", opciones_p2p: dict | None = None) -> Flask:
+                    host_p2p: str = "0.0.0.0", opciones_p2p: dict | None = None, host_http: str | None = None,
+                    laboratorio_ataques: bool = False) -> Flask:
     """Aplicación en modo nodo: construye el NodoCompleto (bloqueado) y el coordinador de sellos. El ServidorP2P se
     crea cuando el nodo se desbloquea (POST /api/sellalo/desbloquear)."""
     try:
@@ -96,7 +135,7 @@ def create_app_nodo(dir_datos: str, ruta_genesis: str, nodo_id: str, puerto_p2p:
     nodo = NodoCompleto(dir_datos, genesis, nodo_id, ruta_clave)
     coordinador = CoordinadorSellos(nodo, dir_datos)
     contexto = ContextoNodo(nodo, coordinador, host_p2p, puerto_p2p, pares, opciones_p2p)
-    return create_app(contexto_nodo=contexto)
+    return create_app(contexto_nodo=contexto, host_http=host_http, laboratorio_ataques=laboratorio_ataques)
 
 
 app = create_app()
@@ -114,6 +153,8 @@ def main() -> None:
     nodo.add_argument("--clave", help="almacén de claves (por defecto <datos>/clave.json)")
     nodo.add_argument("--puerto-p2p", type=int, default=6000)
     nodo.add_argument("--pares", default="", help="pares iniciales: ip:puerto,ip:puerto")
+    nodo.add_argument("--laboratorio-ataques", action="store_true",
+                      help="habilita el endpoint de ataques de demostración (usa la clave del laboratorio)")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
     instancia = app
@@ -125,7 +166,8 @@ def main() -> None:
             parser.error("--puerto-p2p debe estar entre 1 y 65535")
         try:
             instancia = create_app_nodo(args.datos, args.genesis, args.nodo, args.puerto_p2p,
-                                        parsear_pares(args.pares), args.clave)
+                                        parsear_pares(args.pares), args.clave, host_http=args.host,
+                                        laboratorio_ataques=args.laboratorio_ataques)
         except ErrorEntrada as exc:
             parser.exit(1, f"Error: {exc}\n")
         print(f"Nodo {args.nodo} bloqueado. Desbloquéalo en http://{args.host}:{args.port}/ "
