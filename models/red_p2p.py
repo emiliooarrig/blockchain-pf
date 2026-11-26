@@ -26,6 +26,7 @@ MAX_LINEA = 1024 * 1024          # 1 MiB por línea
 MAX_BLOQUES_PAGINA = 100
 MAX_BLOQUES_SYNC = 200_000       # tope de seguridad al armar una cadena ajena
 FALTAS_PARA_VETO = 5
+FALTAS_IP_PARA_VETO = 20         # tope propio para una IP sin autenticar (muchos nodos pueden compartir NAT/loopback)
 MAX_LATENCIA_MS = 3_600_000.0     # tope de la latencia mostrada (1 h)
 TIPOS_SALUDO = ("HELLO", "HELLO_ACK", "AUTH", "HELLO_REJECT")
 TIPOS_BASE = ("PING", "PONG", "GET_BLOQUES", "BLOQUES", "BLOQUE", "TX", "BYE")
@@ -169,17 +170,35 @@ class ServidorP2P:
                 return False
             return True
 
+    @staticmethod
+    def _es_ip(clave: str) -> bool:
+        try:
+            ipaddress.ip_address(clave)
+            return True
+        except ValueError:
+            return False
+
     def _sumar_falta(self, clave: str, motivo: str) -> bool:
-        """Suma una falta a `clave` (id del par o IP). Devuelve True si quedó vetado."""
+        """Suma una falta a `clave` (id de un par ya autenticado o IP). Devuelve True si quedó vetado.
+
+        Antes del AUTH las faltas se cargan sólo a la IP (nunca a la identidad que el par dice tener, o cualquiera
+        podría vetar a un laboratorio ajeno), con un tope propio, y el loopback nunca se veta: en la red local todos
+        los nodos comparten 127.0.0.1."""
+        es_ip = self._es_ip(clave)
+        tope = FALTAS_IP_PARA_VETO if es_ip else FALTAS_PARA_VETO
+        exento = es_ip and ipaddress.ip_address(clave).is_loopback
         with self._lock:
             n = self._faltas.get(clave, 0) + 1
-            veto = n >= FALTAS_PARA_VETO
+            veto = n >= tope
             if veto:
                 self._faltas.pop(clave, None)
-                self._vetos[clave] = time.monotonic() + self.segundos_veto
+                if not exento:
+                    self._vetos[clave] = time.monotonic() + self.segundos_veto
             else:
                 self._faltas[clave] = n
-        self._evento("p2p", f"Falta de {clave}: {motivo} ({n}/{FALTAS_PARA_VETO})")
+        self._evento("p2p", f"Falta de {clave}: {motivo} ({n}/{tope})")
+        if veto and exento:
+            return False
         if veto:
             self._evento("p2p", f"{clave} vetado {self.segundos_veto:g} s por faltas repetidas.")
         return veto
@@ -370,13 +389,13 @@ class ServidorP2P:
         try:
             msg = par.lector.leer(self.tiempo_saludo)
         except _Falta as f:
-            self._sumar_falta(par.id or par.ip, f"saludo: {f.motivo}")
+            self._sumar_falta(par.ip, f"saludo: {f.motivo}")
             self._rechazar(par, f"saludo inválido: {f.motivo}")
             return None
         except _Cierre:
             return None
         if msg is None:
-            self._sumar_falta(par.id or par.ip, "saludo con tiempo agotado")
+            self._sumar_falta(par.ip, "saludo con tiempo agotado")
             self._rechazar(par, "tiempo de saludo agotado")
             return None
         if msg["tipo"] == "HELLO_REJECT":
@@ -384,7 +403,7 @@ class ServidorP2P:
             self._cerrar(par)
             return None
         if msg["tipo"] != esperado:
-            self._sumar_falta(par.id or par.ip, f"{msg['tipo'][:30]} antes de completar el saludo")
+            self._sumar_falta(par.ip, f"{msg['tipo'][:30]} antes de completar el saludo")
             self._rechazar(par, f"se esperaba {esperado} y llegó otro mensaje")
             return None
         return msg
@@ -415,7 +434,7 @@ class ServidorP2P:
             return False
         pub = self.nodo.clave_publica_de(par.id)
         if not verificar(pub, f"{reto_propio}|{par.id}".encode("utf-8"), auth.get("firma_reto")):
-            self._sumar_falta(par.id, "firma de reto inválida")
+            self._sumar_falta(par.ip, "firma de reto inválida")
             self._rechazar(par, "firma del reto inválida")
             return False
         motivo = self._registrar(par, msg, msg.get("puerto"))
@@ -465,7 +484,7 @@ class ServidorP2P:
             par.id = msg["nodo"]
             pub = self.nodo.clave_publica_de(par.id)
             if not verificar(pub, f"{reto}|{par.id}".encode("utf-8"), msg.get("firma_reto")):
-                self._sumar_falta(par.id, "firma de reto inválida")
+                self._sumar_falta(par.ip, "firma de reto inválida")
                 self._rechazar(par, "firma del reto inválida")
                 raise ErrorEstado("El par no pudo probar su identidad (firma del reto inválida).")
             auth = {"tipo": "AUTH", "firma_reto": self._firma_reto(msg["reto"])}
