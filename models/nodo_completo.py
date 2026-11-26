@@ -37,6 +37,27 @@ ULTIMOS_BLOQUES_UI = 15
 MAX_MAXIMO_BLOQUES = 100
 
 
+class ErrorEntradaNoAplicable(ErrorEntrada):
+    """Rechazo que depende del estado local y no es culpa del par que lo envió (duplicada, saldo, ya en cadena...).
+    El transporte lo registra en la bitácora pero no lo cuenta como falta (`benigno`); si `conocida` es True el nodo ya
+    tiene esa transacción, así que el transporte puede marcarla como vista."""
+    benigno = True
+
+    def __init__(self, mensaje: str, conocida: bool = False):
+        super().__init__(mensaje)
+        self.conocida = conocida
+
+
+class ErrorEstadoNoAplicable(ErrorEstado):
+    benigno = True
+    conocida = False
+
+
+class MotivoBenigno(str):
+    """Motivo de un rechazo de bloque que no es culpa del par (p. ej. desfase de reloj): no suma falta."""
+    benigno = True
+
+
 def trabajo(cadena) -> int:
     """Trabajo acumulado: suma de 16**dificultad de los bloques que declaran dificultad."""
     total = 0
@@ -287,7 +308,7 @@ class NodoCompleto:
         de = f" (de {origen})" if origen else ""
         with self.lock:
             if len(self.pendientes) >= MAX_PENDIENTES:
-                raise ErrorEstado(f"La lista de pendientes está llena ({MAX_PENDIENTES}); mina un bloque primero.")
+                raise ErrorEstadoNoAplicable(f"La lista de pendientes está llena ({MAX_PENDIENTES}); mina un bloque primero.")
             try:
                 if es_sello(tx):
                     tid = revisar_sello(self.estado.copia(), tx)
@@ -295,20 +316,23 @@ class NodoCompleto:
                     tid = revisar_transaccion(self.estado, tx)
             except ErrorValidacion as exc:
                 self.evento("rechazo", f"Transacción rechazada{de}: {exc}.")
+                if self._tx_en_cadena(tx):
+                    raise ErrorEntradaNoAplicable(f"Transacción rechazada: {exc}.", conocida=True) from None
                 raise ErrorEntrada(f"Transacción rechazada: {exc}.") from None
             except (KeyError, TypeError, ValueError, AttributeError):
                 self.evento("rechazo", f"Transacción rechazada{de}: formato inválido.")
                 raise ErrorEntrada("Transacción rechazada: formato inválido.") from None
             if any(_id_tx(p) == tid for p in self.pendientes):
                 self.evento("rechazo", f"Transacción rechazada{de}: ya está en la lista de pendientes.")
-                raise ErrorEntrada("Transacción rechazada: ya está en la lista de pendientes (duplicada).")
+                raise ErrorEntradaNoAplicable("Transacción rechazada: ya está en la lista de pendientes (duplicada).",
+                                              conocida=True)
             if not es_sello(tx):
                 disponible = self._disponible(tx["emisor"])
                 if tx["monto"] > disponible:
                     self.evento("rechazo", f"Transacción rechazada{de}: saldo insuficiente de {tx['emisor']} "
                                            f"(disponible {disponible}, monto {tx['monto']}).")
-                    raise ErrorEntrada(f"Saldo insuficiente: {tx['emisor']} tiene {disponible} disponible "
-                                       f"e intenta enviar {tx['monto']}.")
+                    raise ErrorEntradaNoAplicable(f"Saldo insuficiente: {tx['emisor']} tiene {disponible} disponible "
+                                                  f"e intenta enviar {tx['monto']}.")
             self.pendientes.append(tx)
             self._guardar_pendientes()
             if es_sello(tx):
@@ -319,6 +343,12 @@ class NodoCompleto:
         self._despertar.set()
         self._emitir([("tx" if not origen else "tx_recibida", tx)])
         return tid
+
+    def _tx_en_cadena(self, tx) -> bool:
+        try:
+            return _id_tx(tx) in self.estado.tx_ids
+        except (KeyError, TypeError, ValueError, AttributeError, ErrorValidacion):
+            return False
 
     def _disponible(self, nodo_id: str) -> int:
         comprometido = sum(p["monto"] for p in self.pendientes if not es_sello(p) and p["emisor"] == nodo_id)
@@ -365,7 +395,7 @@ class NodoCompleto:
                 return "rechazado", "número de bloque inválido"
             if self._futuro(bloque.get("timestamp")):
                 self.evento("rechazo", f"Bloque #{numero}{origen} rechazado: su timestamp está en el futuro.")
-                return "rechazado", f"timestamp más de {MARGEN_FUTURO:g} s en el futuro"
+                return "rechazado", MotivoBenigno(f"timestamp más de {MARGEN_FUTURO:g} s en el futuro")
             enlaza = numero == self.altura + 1 and bloque.get("hash_anterior") == self.punta
             if enlaza:
                 bloque = _json_puro(bloque)

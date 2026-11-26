@@ -7,6 +7,9 @@ import time
 
 import pytest
 
+from tests import laboratorios as lab
+from tests.laboratorios import crear_laboratorios, nuevo_nodo, transferencia
+
 from models.errores import ErrorEntrada, ErrorEstado
 from models.red_p2p import ServidorP2P
 from tests.nodo_falso import ClaveFalsa, NodoFalso, hacer_bloque
@@ -164,3 +167,86 @@ def test_aud_009_tx_rechazada_no_queda_marcada_como_vista(claves, servidores):
     m.enviar({"tipo": "TX", "tx": tx})                     # reintento tras llegar la financiación
     assert esperar(lambda: tx in a.pendientes)
     m.cerrar()
+
+
+# ---------------------------------------------------------------- utilidades de nodo real
+@pytest.fixture(scope="module")
+def labs(tmp_path_factory):
+    return crear_laboratorios(tmp_path_factory.mktemp("labs_g1"))
+
+
+@pytest.fixture
+def nodo(tmp_path, labs):
+    n = nuevo_nodo(tmp_path / "datos", labs)
+    yield n
+    n.detener_minado()
+
+
+def hace():
+    return time.time() - 100
+
+
+# ---------------------------------------------------------------- AUD-011
+class RechazoBenigno(ErrorEntrada):
+    benigno = True
+    conocida = False
+
+
+class NodoRechazaBenigno(NodoFalso):
+    def agregar_transaccion(self, tx, origen=""):
+        raise RechazoBenigno("pendientes llenas")
+
+
+def test_aud_011_rechazos_benignos_no_suman_faltas(claves, servidores):
+    a = NodoRechazaBenigno("LAB-A", claves)
+    sa = servidores(a)
+    m = crudo_autenticado(sa, a, claves, "LAB-B")
+    for i in range(12):                        # un par honesto retransmite transacciones que no caben ahora
+        m.enviar({"tipo": "TX", "tx": {"id": f"{i:064x}"}})
+    time.sleep(0.5)
+    assert sa.faltas_de("LAB-B") == 0
+    assert not sa.vetado("LAB-B")
+    assert "LAB-B" in ids_de(sa)
+    m.cerrar()
+
+
+def test_aud_011_las_faltas_decaen_con_el_tiempo(claves, servidores):
+    a = NodoFalso("LAB-A", claves)
+    sa = servidores(a, ventana_faltas=0.4)
+    m = crudo_autenticado(sa, a, claves, "LAB-B")
+    for _ in range(3):
+        m.enviar({"tipo": "TIPO_RARO"})
+    assert esperar(lambda: sa.faltas_de("LAB-B") == 3)
+    time.sleep(0.7)
+    assert sa.faltas_de("LAB-B") == 0          # cinco rechazos espaciados ya no suman un veto
+    m.cerrar()
+
+
+def test_aud_011_nodo_marca_como_benignos_los_rechazos_que_dependen_del_estado(nodo, labs, monkeypatch):
+    tx = transferencia(labs, "LAB-A", "LAB-B", 3, hace())
+    nodo.agregar_transaccion(tx)
+    with pytest.raises(ErrorEntrada) as e:
+        nodo.agregar_transaccion(tx)           # duplicada
+    assert getattr(e.value, "benigno", False) and getattr(e.value, "conocida", False)
+    with pytest.raises(ErrorEntrada) as e:
+        nodo.agregar_transaccion(transferencia(labs, "LAB-A", "LAB-B", 10**6, hace() + 1))   # saldo insuficiente
+    assert getattr(e.value, "benigno", False)
+    monkeypatch.setattr("models.nodo_completo.MAX_PENDIENTES", 1)
+    with pytest.raises(ErrorEstado) as e:
+        nodo.agregar_transaccion(transferencia(labs, "LAB-B", "LAB-C", 1, hace() + 2))      # pendientes llena
+    assert getattr(e.value, "benigno", False)
+
+
+def test_aud_011_bloque_ya_en_cadena_y_futuro_son_benignos(nodo, labs):
+    b1 = lab.bloque_externo(labs, labs[0], [transferencia(labs, "LAB-A", "LAB-C", 3, hace())])
+    assert nodo.recibir_bloque(b1)[0] == "aceptado"
+    tx_repetida = b1["transacciones"][0]
+    with pytest.raises(ErrorEntrada) as e:
+        nodo.agregar_transaccion(tx_repetida)  # la transacción ya está en la cadena
+    assert getattr(e.value, "benigno", False) and getattr(e.value, "conocida", False)
+    from models.bloque import hash_bloque
+    futuro = lab.bloque_externo(labs, b1, [transferencia(labs, "LAB-A", "LAB-C", 1, hace() + 5)])
+    futuro["timestamp"] = time.time() + 3600
+    futuro["hash"] = hash_bloque(futuro)
+    estado, motivo = nodo.recibir_bloque(futuro)
+    assert estado == "rechazado" and getattr(motivo, "benigno", False)

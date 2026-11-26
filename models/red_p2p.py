@@ -113,7 +113,7 @@ class _Par:
 
 class ServidorP2P:
     def __init__(self, nodo, host="0.0.0.0", puerto=6000, *, intervalo_ping=3.0, tiempo_sin_respuesta=12.0,
-                 tiempo_saludo=5.0, tiempo_sync=10.0, segundos_veto=60.0, max_vistos=10_000):
+                 tiempo_saludo=5.0, tiempo_sync=10.0, segundos_veto=60.0, max_vistos=10_000, ventana_faltas=300.0):
         self.nodo = nodo
         self.host = host
         self.puerto = puerto
@@ -123,12 +123,13 @@ class ServidorP2P:
         self.tiempo_sync = tiempo_sync
         self.segundos_veto = segundos_veto
         self.max_vistos = max_vistos
+        self.ventana_faltas = ventana_faltas      # las faltas más viejas que esto ya no cuentan
         self._lock = threading.RLock()
         self._pares: dict[str, _Par] = {}
         self._conexiones: set[_Par] = set()      # incluye las que aún no terminan el saludo
         self._manejadores: dict[str, object] = {}
         self._vistos: OrderedDict = OrderedDict()
-        self._faltas: dict[str, int] = {}
+        self._faltas: dict[str, list[float]] = {}     # clave -> marcas de tiempo (monotónicas) de sus faltas
         self._vetos: dict[str, float] = {}
         self._hilos: list[threading.Thread] = []
         self._escucha: socket.socket | None = None
@@ -158,7 +159,17 @@ class ServidorP2P:
 
     def faltas_de(self, clave: str) -> int:
         with self._lock:
-            return self._faltas.get(clave, 0)
+            return len(self._recientes(clave))
+
+    def _recientes(self, clave: str) -> list[float]:
+        """Faltas de `clave` dentro de la ventana (descarta las viejas). Con el candado tomado."""
+        cortes = time.monotonic() - self.ventana_faltas
+        marcas = [t for t in self._faltas.get(clave, ()) if t >= cortes]
+        if marcas:
+            self._faltas[clave] = marcas
+        else:
+            self._faltas.pop(clave, None)
+        return marcas
 
     def vetado(self, clave: str) -> bool:
         with self._lock:
@@ -188,14 +199,16 @@ class ServidorP2P:
         tope = FALTAS_IP_PARA_VETO if es_ip else FALTAS_PARA_VETO
         exento = es_ip and ipaddress.ip_address(clave).is_loopback
         with self._lock:
-            n = self._faltas.get(clave, 0) + 1
+            marcas = self._recientes(clave)
+            marcas.append(time.monotonic())
+            n = len(marcas)
             veto = n >= tope
             if veto:
                 self._faltas.pop(clave, None)
                 if not exento:
                     self._vetos[clave] = time.monotonic() + self.segundos_veto
             else:
-                self._faltas[clave] = n
+                self._faltas[clave] = marcas
         self._evento("p2p", f"Falta de {clave}: {motivo} ({n}/{tope})")
         if veto and exento:
             return False
@@ -659,6 +672,9 @@ class ServidorP2P:
         if isinstance(bloque.get("hash"), str):
             par.punta = bloque["hash"][:128]
         estado, motivo = self.nodo.recibir_bloque(bloque, de=par.id)
+        if estado == "rechazado" and getattr(motivo, "benigno", False):
+            self._evento("p2p", f"Bloque de {par.id} no aplicable por ahora: {str(motivo)[:120]}")
+            return                                  # no es culpa del par (p. ej. reloj adelantado): sin falta
         if estado in ("aceptado", "duplicado"):
             self._visto(clave)
         if estado == "aceptado":
@@ -678,6 +694,11 @@ class ServidorP2P:
         try:
             self.nodo.agregar_transaccion(tx, origen=par.id)
         except (ErrorEntrada, ErrorEstado) as exc:
+            if getattr(exc, "benigno", False):      # duplicada, pendientes llena, saldo...: depende de mi estado local
+                if getattr(exc, "conocida", False):
+                    self._visto(clave)
+                self._evento("p2p", f"TX de {par.id} no aplicable por ahora: {str(exc)[:120]}")
+                return
             raise _Falta(f"transacción rechazada: {str(exc)[:120]}")
         self._visto(clave)
         self.difundir("TX", {"tx": tx}, excepto=par.id)
