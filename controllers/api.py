@@ -4,7 +4,7 @@ from flask import Blueprint, current_app, jsonify, render_template, request
 from controllers.entradas import booleano, contrasena, datos, entero, opcion, texto
 from models import ataques
 from models.bloque import MONTO_MAX
-from models.errores import ErrorEntrada
+from models.errores import ErrorEntrada, ErrorEstado
 from models.pos import FRAUDES, REGLAS_CASTIGO
 from models.pow import (DIF_MAX, DIF_MIN, K_MAX, K_MIN, PAUSA_MAX, PAUSA_MIN, RONDAS_MAX, RONDAS_MIN, SERIE_MAX,
                         SERIE_MIN)
@@ -97,15 +97,21 @@ def transaccion_aleatoria(version):
     d = datos()
     red = _red(version)
     cantidad = entero(d, "cantidad", "La cantidad", 1, 20, defecto=1)
-    creadas = 0
+    creadas, aviso = 0, ""
     with red.lock:
         for _ in range(cantidad):
-            if red.transaccion_aleatoria() is None:
+            try:
+                if red.transaccion_aleatoria() is None:
+                    break
+            except ErrorEstado as exc:      # AUD-036: p. ej. lista de pendientes llena a mitad del lote
+                if not creadas:
+                    raise
+                aviso = f" Se detuvo el lote: {exc}"
                 break
             creadas += 1
     if not creadas:
         raise ErrorEntrada("Ningún nodo tiene saldo disponible para generar transacciones.")
-    return _ok(f"{creadas} transacción(es) aleatoria(s) firmada(s) y agregada(s) a pendientes.")
+    return _ok(f"{creadas} transacción(es) aleatoria(s) firmada(s) y agregada(s) a pendientes.{aviso}", creadas=creadas)
 
 
 @api.post("/ataques")
