@@ -31,10 +31,16 @@ def nombre_lab(i: int) -> str:
     return f"LAB-{chr(ord('A') + i)}"
 
 
-def preparar(n: int, carpeta: str, contrasena: str | None) -> tuple[str, list[dict]]:
+def preparar(n: int, carpeta: str, contrasena: str | None, http_base: int = PUERTO_HTTP,
+             p2p_base: int = PUERTO_P2P) -> tuple[str, list[dict]]:
     """Crea identidades y génesis que falten. Devuelve (ruta del génesis, lista de nodos con sus datos)."""
     if not 2 <= n <= MAX_LABS:
         raise ErrorEntrada(f"--labs debe estar entre 2 y {MAX_LABS}.")
+    for base, nombre in ((http_base, "--puerto-base"), (p2p_base, "--puerto-p2p-base")):
+        if not 1024 <= base <= 65535 - n:
+            raise ErrorEntrada(f"{nombre} debe estar entre 1024 y {65535 - n}.")
+    if abs(http_base - p2p_base) < n:
+        raise ErrorEntrada("Los rangos de puertos HTTP y P2P se enciman; sepáralos al menos por el número de laboratorios.")
     nodos = []
     for i in range(n):
         nid = nombre_lab(i)
@@ -44,7 +50,7 @@ def preparar(n: int, carpeta: str, contrasena: str | None) -> tuple[str, list[di
             if contrasena is None:
                 raise ErrorEntrada("Falta la contraseña para crear las identidades (usa --contrasena-env).")
             crear_almacen(clave, nid, contrasena)
-        nodos.append({"id": nid, "datos": datos, "clave": clave, "http": PUERTO_HTTP + i, "p2p": PUERTO_P2P + i})
+        nodos.append({"id": nid, "datos": datos, "clave": clave, "http": http_base + i, "p2p": p2p_base + i})
     ruta_genesis = os.path.join(carpeta, "genesis.json")
     if not os.path.exists(ruta_genesis):
         genesis = construir_genesis([f"{x['id']}={x['clave']}" for x in nodos], 100, 10, "Red Sellalo (demo local)")
@@ -96,6 +102,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--carpeta", default="data/demo", help="carpeta de la demo (data/demo)")
     parser.add_argument("--contrasena-env", metavar="VAR", help="leer la contraseña de esta variable de entorno")
     parser.add_argument("--lanzar", action="store_true", help="arrancar un proceso por laboratorio")
+    parser.add_argument("--puerto-base", type=int, default=PUERTO_HTTP, help=f"primer puerto HTTP ({PUERTO_HTTP})")
+    parser.add_argument("--puerto-p2p-base", type=int, default=PUERTO_P2P, help=f"primer puerto P2P ({PUERTO_P2P})")
     args = parser.parse_args(argv)
     try:
         contrasena = None
@@ -105,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise ErrorEntrada(f"La variable de entorno {args.contrasena_env} no existe o está vacía.")
         elif not os.path.exists(os.path.join(args.carpeta, nombre_lab(0), "clave.json")) and sys.stdin.isatty():
             contrasena = getpass.getpass(f"Contraseña para las identidades de la demo (mínimo {CONTRASENA_MIN}): ")
-        genesis, nodos = preparar(args.labs, args.carpeta, contrasena)
+        genesis, nodos = preparar(args.labs, args.carpeta, contrasena, args.puerto_base, args.puerto_p2p_base)
     except ErrorEntrada as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

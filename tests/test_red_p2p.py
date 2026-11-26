@@ -318,3 +318,14 @@ def test_detener_cierra_hilos(claves, servidores):
     for s in srv:
         s.detener()
     assert esperar(lambda: not ({t for t in threading.enumerate() if t.name.startswith("p2p")} - antes), 5)
+
+
+def test_ping_y_pong_actualizan_altura_y_punta_de_los_pares(claves, servidores):
+    """La tabla de pares no espera a recibir un bloque: el PING/PONG periódico trae altura, trabajo y punta."""
+    (a, b, _), (sa, sb, _) = mallar(claves, servidores)
+    with a.lock:
+        for i in range(3):
+            a.cadena.append(hacer_bloque(a.cadena[-1], f"local-{i}"))   # crecen sin difundirse
+    punta = a.cadena[-1]["hash"]
+    assert esperar(lambda: any(p["id"] == a.id and p["altura"] == 3 and p["punta"] == punta
+                               for p in sb.pares_publico()))

@@ -122,18 +122,24 @@ def test_ningun_archivo_versionado_contiene_claves_privadas():
 
 
 def test_historial_sin_claves_ni_almacenes():
+    """Ningún archivo de ninguna versión del repositorio es un almacén de claves ni contiene una clave PEM.
+    Se buscan contenidos (git grep sobre todas las revisiones) y se excluye este archivo, que menciona el patrón."""
+    patron = "BEGIN " + "PRIVATE KEY"
     try:
         out = subprocess.run(["git", "log", "--all", "--name-only", "--format="], cwd=RAIZ, capture_output=True,
                              text=True, timeout=60)
-        pem = subprocess.run(["git", "log", "--all", "--oneline", "-S", "BEGIN PRIVATE KEY"], cwd=RAIZ,
-                             capture_output=True, text=True, timeout=60)
+        revs = subprocess.run(["git", "rev-list", "--all"], cwd=RAIZ, capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.TimeoutExpired):
         pytest.skip("git no disponible")
-    if out.returncode != 0:
+    if out.returncode != 0 or revs.returncode != 0:
         pytest.skip("no es un repositorio git")
     nombres = {os.path.basename(x) for x in out.stdout.split()}
     assert "clave.json" not in nombres and not [n for n in nombres if n.endswith(".key")]
-    assert pem.stdout.strip() == ""
+    pem = subprocess.run(["git", "grep", "-l", "-F", patron, *revs.stdout.split()], cwd=RAIZ, capture_output=True,
+                         text=True, timeout=60)
+    este = os.path.relpath(__file__, RAIZ).replace(os.sep, "/")
+    hallados = {linea.split(":", 1)[1] for linea in pem.stdout.split() if ":" in linea}
+    assert hallados <= {este}, f"posible clave privada versionada en: {sorted(hallados - {este})}"
 
 
 def test_secretos_no_salen_en_respuestas_bitacora_ni_logs(labs, app_nodo, caplog, capsys):

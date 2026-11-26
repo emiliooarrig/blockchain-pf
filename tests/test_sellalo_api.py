@@ -253,3 +253,17 @@ def test_validacion_estricta_de_sellos(desbloqueado):
     assert c.post("/api/sellalo/sellos", json={**base, "doc_hash": "b" * 64}).status_code == 200   # hash directo
     assert c.post("/api/sellalo/minar", json={"dificultad": 99}).status_code == 400
     assert estado(c)["nodo"]["altura"] == 0
+
+
+def test_detalle_de_bloque(desbloqueado):
+    c = desbloqueado
+    assert sellar(c).status_code == 200
+    minar_hasta(c, 1)
+    r = c.get("/api/sellalo/bloques/1")
+    assert r.status_code == 200
+    cuerpo = r.get_json()
+    assert cuerpo["ok"] and cuerpo["bloque"]["numero"] == 1
+    assert any(tx.get("tipo") == "sello" for tx in cuerpo["bloque"]["transacciones"])
+    assert c.get("/api/sellalo/bloques/0").get_json()["bloque"]["numero"] == 0
+    for ruta in ("/api/sellalo/bloques/99", "/api/sellalo/bloques/-1", "/api/sellalo/bloques/x"):
+        assert c.get(ruta).status_code in (400, 404)

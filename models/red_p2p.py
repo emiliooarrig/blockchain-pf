@@ -532,7 +532,7 @@ class ServidorP2P:
                     return
                 if ahora - par.ultimo_ping >= self.intervalo_ping:
                     par.ultimo_ping = ahora
-                    self._enviar(par, {"tipo": "PING", "t": time.time()})
+                    self._enviar(par, {"tipo": "PING", "t": time.time(), **self._resumen_seguro()})
                 continue
             par.ultimo_rx = ahora
             try:
@@ -551,11 +551,29 @@ class ServidorP2P:
                     self._cerrar(par, "demasiadas faltas", avisar=True)
                     return
 
+    def _resumen_seguro(self) -> dict:
+        """Altura, trabajo y punta propios para PING/PONG (así la tabla de pares no espera a un bloque)."""
+        try:
+            r = self.nodo.resumen()
+            return {"altura": r["altura"], "trabajo": r["trabajo"], "punta": r["punta"]}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _actualizar_resumen(par: _Par, msg: dict) -> None:
+        """Campos opcionales; si faltan o son inválidos se ignoran (compatibilidad con pares sin resumen)."""
+        altura, trabajo, punta = msg.get("altura"), msg.get("trabajo"), msg.get("punta")
+        if (type(altura) is int and type(trabajo) is int and 0 <= altura < 10**9 and 0 <= trabajo < 16**64
+                and isinstance(punta, str) and len(punta) <= 128):
+            par.altura, par.trabajo, par.punta = altura, trabajo, punta
+
     def _despachar(self, par: _Par, msg: dict) -> None:
         tipo = msg["tipo"]
         if tipo == "PING":
-            self._enviar(par, {"tipo": "PONG", "t": msg.get("t")})
+            self._actualizar_resumen(par, msg)
+            self._enviar(par, {"tipo": "PONG", "t": msg.get("t"), **self._resumen_seguro()})
         elif tipo == "PONG":
+            self._actualizar_resumen(par, msg)
             t = msg.get("t")
             if isinstance(t, (int, float)) and not isinstance(t, bool) and math.isfinite(t):
                 # acotada: un par no puede meter Infinity/NaN en el JSON de /estado con una marca de tiempo absurda

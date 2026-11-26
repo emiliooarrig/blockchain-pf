@@ -258,7 +258,7 @@
     const bloque = r.ok ? (r.data.bloque || r.data) : null;
     ui.detalles.set(numero, bloque && Array.isArray(bloque.transacciones)
       ? { txs: bloque.transacciones }
-      : { error: "El detalle de las transacciones no está disponible en este nodo (falta la ruta /api/sellalo/bloques/<n>)." });
+      : { error: (r.data && r.data.error) || "No se pudo cargar el detalle del bloque." });
     contenedor.replaceChildren(cuerpoDetalle(numero));
   }
 

@@ -3,6 +3,7 @@
 Sólo reciben la petición, validan las entradas y llaman al núcleo (models/). El contenido de los documentos nunca se
 guarda ni se transmite: se calcula su SHA-256 por bloques y se descarta.
 """
+import copy
 import hashlib
 import ipaddress
 import json
@@ -354,6 +355,17 @@ def transferir():
 
 
 # ---------------------------------------------------------------- prioridad y certificados
+@sellalo.get("/bloques/<int:numero>")
+def bloque(numero: int):
+    """Bloque completo de la copia local (con sus transacciones) para desplegarlo en la interfaz."""
+    nodo = _ctx().nodo
+    with nodo.lock:
+        if not 0 <= numero < len(nodo.cadena):
+            raise ErrorEntrada(f"El bloque #{numero} no existe (la altura es {len(nodo.cadena) - 1}).")
+        datos = copy.deepcopy(nodo.cadena[numero])
+    return _ok(bloque=datos, confirmaciones=max(0, nodo.altura - numero))
+
+
 @sellalo.post("/prioridad")
 def prioridad():
     d = _entrada()
