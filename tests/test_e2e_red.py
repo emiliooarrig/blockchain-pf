@@ -23,7 +23,7 @@ pytestmark = pytest.mark.e2e
 def test_guion_completo_con_tres_procesos(tmp_path):
     assert len(CONTRASENA) >= CONTRASENA_MIN
     t0 = time.monotonic()
-    red = RedLocal(str(tmp_path / "red"), CONTRASENA, limite_total=LIMITE_TOTAL - 5)
+    red = RedLocal(str(tmp_path / "red"), CONTRASENA, limite_total=LIMITE_TOTAL - 5, dificultad=2)
     lineas: list[str] = []
     try:
         red.lanzar_todos()

@@ -106,6 +106,12 @@ def _verificar(cert, documento, genesis_esperado) -> dict:
     if not isinstance(genesis.get("cuentas"), dict):
         return _fallo("el génesis no contiene cuentas")
 
+    parametros = genesis.get("parametros")
+    dif_red = parametros.get("dificultad") if isinstance(parametros, dict) else None
+    if isinstance(parametros, dict) and "dificultad" in parametros and (
+            type(dif_red) is not int or not DIF_MIN <= dif_red <= DIF_MAX):
+        return _fallo("el génesis fija una dificultad de red inválida")
+
     # 2. Encabezados
     anterior, previo_num = hash_genesis, 0
     for h in encabezados:
@@ -125,6 +131,8 @@ def _verificar(cert, documento, genesis_esperado) -> dict:
         dif = h.get("dificultad")
         if type(dif) is not int or not DIF_MIN <= dif <= DIF_MAX or not h["hash"].startswith("0" * dif):
             return _fallo(f"el bloque {num} no cumple la prueba de trabajo")
+        if dif_red is not None and dif != dif_red:
+            return _fallo(f"el bloque {num} usa dificultad {dif} y el génesis fija la dificultad {dif_red}")
         clave = _clave_de(genesis, h.get("proponente"))
         if clave is None:
             return _fallo(f"el proponente del bloque {num} no está en el génesis")

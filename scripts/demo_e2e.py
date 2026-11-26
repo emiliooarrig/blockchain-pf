@@ -137,7 +137,8 @@ class RedLocal:
     """Prepara (identidades cifradas + génesis) y lanza una red de procesos reales `app.py --modo nodo`."""
 
     def __init__(self, carpeta: str, contrasena: str, ids=IDS, http_base: int = 5201, p2p_base: int = 6201,
-                 limite_total: float | None = None):
+                 limite_total: float | None = None, dificultad: int = 3):
+        self.dificultad = dificultad   # dificultad única de la red, fijada en el génesis (AUD-004)
         self.carpeta, self.contrasena, self.ids = carpeta, contrasena, tuple(ids)
         self.nodos: dict[str, NodoRed] = {}
         self.puede_reiniciar = True
@@ -150,7 +151,8 @@ class RedLocal:
             claves[nid] = os.path.join(datos, "clave.json")
             crear_almacen(claves[nid], nid, contrasena)
         self.ruta_genesis = os.path.join(carpeta, "genesis.json")
-        genesis = construir_genesis([f"{nid}={claves[nid]}" for nid in self.ids], 100, 10, "Red Sellalo (e2e)")
+        genesis = construir_genesis([f"{nid}={claves[nid]}" for nid in self.ids], 100, 10, "Red Sellalo (e2e)",
+                                    dificultad=dificultad)
         with open(self.ruta_genesis, "w", encoding="utf-8") as f:
             json.dump(genesis, f, indent=2, ensure_ascii=False)
         usados = set()
@@ -240,6 +242,7 @@ class RedExterna:
             host = url.split("//")[-1].rsplit(":", 1)[0]
             n = NodoRed(est["nodo"]["id"], url, host, est["red"]["puerto_p2p"])
             self.nodos[n.id] = n
+            self.dificultad = est.get("red", {}).get("dificultad_red") or est.get("nodo", {}).get("dificultad_red") or 3
         self.ids = tuple(self.nodos)
 
     def cerrar(self) -> None:
@@ -289,8 +292,9 @@ class Guion:
             self.say(f"    {n.id}: altura {n.resumen()[0]}  punta {n.resumen()[1][:16]}…")
         return a, p
 
-    def minar(self, n: NodoRed, altura: int, dificultad: int = 2) -> None:
-        n.llamar("POST", "/minar", {"dificultad": dificultad})
+    def minar(self, n: NodoRed, altura: int) -> None:
+        # La dificultad es única y la fija el génesis de la red (AUD-004): todos los bloques usan la misma.
+        n.llamar("POST", "/minar", {"dificultad": self.red.dificultad})
         self.esperar(lambda: n.nodo()["altura"] >= altura and not n.nodo()["minando"], f"{n.id} minando bloque {altura}")
 
     def tipos_pendientes(self, n: NodoRed) -> list[str]:
@@ -447,31 +451,36 @@ class Guion:
         self.esperar(lambda: self.c.pares() == [] and self.a.pares() == [self.b.id] and self.b.pares() == [self.a.id],
                      "Lab C aislado de A y B")
         self.say(f"  {self.c.id} desconectado (pares: {self.c.pares()}); {self.a.id} y {self.b.id} siguen unidos.")
+        # Con una dificultad única, la rama con más trabajo es la que tiene más bloques: A y B minan dos, C uno.
         self.a.llamar("POST", "/transferencias", {"receptor": self.b.id, "monto": 5})
-        self.minar(self.a, base + 1, dificultad=2)
+        self.minar(self.a, base + 1)
         self.converger(base + 1, "A y B con el mismo bloque", [self.a, self.b])
+        self.a.llamar("POST", "/transferencias", {"receptor": self.b.id, "monto": 3})
+        self.minar(self.a, base + 2)
+        self.converger(base + 2, "A y B con dos bloques de ventaja", [self.a, self.b])
         self.c.llamar("POST", "/transferencias", {"receptor": self.a.id, "monto": 7})
-        self.minar(self.c, base + 1, dificultad=1)
+        self.minar(self.c, base + 1)
         rama_ab, rama_c = self.a.resumen(), self.c.resumen()
-        self.exigir(rama_ab[0] == rama_c[0] and rama_ab[1] != rama_c[1], "las dos ramas deberían divergir")
-        self.say(f"  Ramas divergentes a la altura {base + 1}: A/B punta {rama_ab[1][:12]}… (dificultad 2) "
-                 f"contra C punta {rama_c[1][:12]}… (dificultad 1)")
+        self.exigir(rama_ab[0] == base + 2 and rama_c[0] == base + 1 and rama_ab[1] != rama_c[1],
+                    "las dos ramas deberían divergir (A/B con un bloque más que C)")
+        self.say(f"  Ramas divergentes desde la altura {base}: A/B punta {rama_ab[1][:12]}… (2 bloques) "
+                 f"contra C punta {rama_c[1][:12]}… (1 bloque), misma dificultad {self.red.dificultad}")
         for o in (self.a, self.b):
             self.c.llamar("POST", "/pares", {"ip": o.host_p2p, "puerto": o.p2p})
-        altura, punta = self.converger(base + 1, "convergencia tras reconectar", limite=30)
+        altura, punta = self.converger(base + 2, "convergencia tras reconectar", limite=30)
         self.exigir(punta == rama_ab[1], "debió ganar la rama de A con más trabajo")
         self.say(f"  Reconectados: los 3 adoptan la rama con más trabajo (la de A), punta {punta[:16]}…")
         perdida = [p for p in self.c.pendientes() if p["tipo"] == "transferencia" and p["emisor"] == self.c.id]
         self.exigir(perdida, f"la transferencia de la rama perdida no volvió a pendientes de {self.c.id}")
         self.say(f"  La transacción de la rama perdida volvió a pendientes de {self.c.id}: C->{perdida[0]['receptor']} "
                  f"por {perdida[0]['monto']}")
-        self.minar(self.c, base + 2, dificultad=1)
-        self.converger(base + 2, "la tx recuperada entra en un bloque de la cadena ganadora")
+        self.minar(self.c, base + 3)
+        self.converger(base + 3, "la tx recuperada entra en un bloque de la cadena ganadora")
         self.exigir(not self.c.pendientes(), "quedaron pendientes después de minar la tx recuperada")
         saldos = {n.id: sorted((c["id"], c["saldo"]) for c in n.nodo()["cuentas"]) for n in self.todos}
         self.exigir(len({json.dumps(s) for s in saldos.values()}) == 1, f"los saldos difieren: {saldos}")
         self.say("  Ningún sello ni transacción se perdió; saldos idénticos en los 3 nodos.")
-        self.ev["altura_particion"] = base + 2
+        self.ev["altura_particion"] = base + 3
 
     def paso10_reinicio(self) -> None:
         self.titulo("extra", "Reinicio: se mata el proceso de Lab B y se vuelve a arrancar con los mismos datos")
