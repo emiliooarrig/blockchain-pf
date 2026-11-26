@@ -358,7 +358,8 @@ def firmar_sello(id_sello):
 @sellalo.post("/minar")
 def minar():
     d = datos()
-    dificultad = entero(d, "dificultad", "La dificultad", DIF_MIN, DIF_MAX, defecto=2)
+    # Opcional: si la red fija la dificultad en el génesis, el nodo la ignora (G1); si no viene, se pasa None.
+    dificultad = entero(d, "dificultad", "La dificultad", DIF_MIN, DIF_MAX) if d.get("dificultad") not in (None, "") else None
     continuo = booleano(d, "continuo", "El minado continuo", defecto=False)
     return _ok(_ctx().nodo.iniciar_minado(dificultad, continuo))
 

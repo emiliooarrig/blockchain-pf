@@ -125,7 +125,8 @@
       </div>
       <div>
         <form id="form-minar" class="form form-grid" autocomplete="off">
-          <label>Dificultad (ceros hex) <span class="muted small" id="dif-rango"></span>
+          <p id="dif-fija" class="muted" hidden>Dificultad de la red (fija en el génesis): <strong id="dif-fija-valor"></strong> ceros hex.</p>
+          <label id="lbl-dif">Dificultad (ceros hex) <span class="muted small" id="dif-rango"></span>
             <input id="in-dif" name="dificultad" type="number" min="1" max="6" value="3" required></label>
           <label class="check"><input id="in-continuo" name="continuo" type="checkbox"> Minado continuo (sigue con los nuevos pendientes)</label>
           <div class="row-buttons">

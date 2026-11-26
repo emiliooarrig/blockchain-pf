@@ -157,6 +157,10 @@
       if (previo) rec.value = previo;
     }
     actualizarUmbral();
+    const difRed = e.nodo.dificultad_red;       // AUD-004: si el génesis fija la dificultad, el minero no la elige
+    $("#dif-fija").hidden = difRed == null;
+    $("#lbl-dif").hidden = difRed != null;
+    if (difRed != null) $("#dif-fija-valor").textContent = String(difRed);
     $("#seccion-ataques").hidden = !e.laboratorio_ataques;     // AUD-017: sólo con --laboratorio-ataques
     const cl = `${e.ataques.map((a) => a.id).join(",")}`;
     if (cl !== ui.clavesAtaques) {
@@ -386,7 +390,7 @@
 
   $("#form-minar").addEventListener("submit", (ev) => {
     ev.preventDefault();
-    enviar($("#btn-minar"), "/minar", { metodo: "POST", json: { dificultad: Number($("#in-dif").value), continuo: $("#in-continuo").checked } });
+    enviar($("#btn-minar"), "/minar", { metodo: "POST", json: { ...($("#lbl-dif").hidden ? {} : { dificultad: Number($("#in-dif").value) }), continuo: $("#in-continuo").checked } });
   });
   $("#btn-detener").addEventListener("click", (ev) => enviar(ev.currentTarget, "/minar/detener", { metodo: "POST", json: {} }));
   $("#form-tx").addEventListener("submit", (ev) => {

@@ -191,3 +191,14 @@ def test_aud_037_json_con_cuerpo_vacio_en_rutas_sin_parametros(sim, ruta):
 def test_aud_037_cuerpo_vacio_con_json_en_ruta_con_parametros_sigue_siendo_error_claro(sim):
     r = sim.post("/api/pow/transacciones", data=b"", content_type="application/json")
     assert r.status_code == 400 and "emisor" in r.get_json()["error"].lower() or r.status_code == 400
+
+
+# ---------------------------------------------------------------- coordinación con AUD-004 (parte G2)
+def test_aud_004_g2_minar_sin_dificultad_la_pasa_como_none(desbloqueado, app_nodo, monkeypatch):
+    llamadas = []
+    monkeypatch.setattr(app_nodo.config["CONTEXTO_NODO"].nodo, "iniciar_minado",
+                        lambda dificultad, continuo=False: llamadas.append((dificultad, continuo)) or "ok")
+    assert desbloqueado.post("/api/sellalo/minar", json={}).status_code == 200
+    assert desbloqueado.post("/api/sellalo/minar", json={"dificultad": 3, "continuo": True}).status_code == 200
+    assert llamadas == [(None, False), (3, True)]
+    assert desbloqueado.post("/api/sellalo/minar", json={"dificultad": 99}).status_code == 400
