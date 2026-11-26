@@ -36,7 +36,7 @@ Leyenda: **C** corregir · **CP** corregir parcialmente (se indica qué queda) �
 
 | ID | Decisión | Qué se hace |
 |---|---|---|
-| AUD-003 | C | Todas las peticiones de escritura a `/api/*` exigen la cabecera `X-Sellalo: 1` (fuerza *preflight* CORS) y un `Origin` del propio nodo si viene; `Host` restringido a `127.0.0.1`/`localhost`/`--host` (DNS rebinding). La interfaz envía la cabecera. |
+| AUD-003 | C | Toda escritura a `/api/*` cuyo `Origin` no sea el del propio nodo, o con `Sec-Fetch-Site: cross-site`/`same-site`, se rechaza con 403 (los navegadores siempre envían `Origin` en un POST entre sitios); `Host` restringido a `127.0.0.1`/`localhost`/`[::1]`/`--host` (DNS rebinding). Los clientes sin navegador (curl, pruebas, demo) no envían `Origin` y siguen funcionando. |
 | AUD-017 | C | El laboratorio de ataques sólo se activa con `--laboratorio-ataques` (la demo y el lanzador lo pasan); sin la opción responde 409. |
 | AUD-032 | C | `/pares` y `--pares` resuelven nombres de host a IP antes de conectar, con el mismo validador. |
 | AUD-033 | CP | Cabeceras `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`. SRI para Google Fonts: NA (la hoja CSS de Google es dinámica); se acota con CSP. |
