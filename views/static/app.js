@@ -474,8 +474,11 @@
 
   $("#form-red").addEventListener("submit", (ev) => {
     ev.preventDefault();
-    const d = formulario(ev.currentTarget);
-    enviar("/simulacion", d, ev.submitter).then((r) => { if (r.ok) { ui.nodosFirma = ui.validadoresFirma = ""; ui.cadenaClave = ""; } });
+    const f = ev.currentTarget;
+    const d = formulario(f);
+    const clave = f.elements.contrasena.value;          // sin recortar: los espacios cuentan
+    if (clave) d.contrasena = clave; else delete d.contrasena;
+    enviar("/simulacion", d, ev.submitter).then((r) => { f.elements.contrasena.value = ""; if (r.ok) { ui.nodosFirma = ui.validadoresFirma = ""; ui.cadenaClave = ""; } });
   });
   $("#form-tx").addEventListener("submit", (ev) => {
     ev.preventDefault();
@@ -508,6 +511,11 @@
     const [ruta, cuerpo] = acciones[b.dataset.accion]();
     enviar(ruta, cuerpo, ev.currentTarget);
   }));
+
+  // Enlace al nodo Sellalo: sólo si este proceso es un nodo (en modo simulador la ruta responde 409).
+  fetch("/api/sellalo/estado", { cache: "no-store" })
+    .then((r) => { if (r.ok) $("#enlace-nodo").hidden = false; })
+    .catch(() => {});
 
   ui.primeraVez = true;
   actualizar();

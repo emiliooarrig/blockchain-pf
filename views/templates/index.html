@@ -20,6 +20,7 @@
       <p class="subtitle">Simulador de blockchain para el sellado de tiempo entre laboratorios · de 10 a 20 laboratorios (nodos) con transacciones firmadas (Ed25519) · cada laboratorio valida la cadena completa antes de aceptarla</p>
     </div>
   </div>
+  <a class="btn btn-on-dark btn-link" id="enlace-nodo" href="/" hidden>Nodo Sellalo</a>
   <nav class="tabs" role="tablist" aria-label="Versión">
     <button class="tab" role="tab" data-version="pow" id="tab-pow">V1 · Proof of Work</button>
     <button class="tab" role="tab" data-version="pos" id="tab-pos">V2 · Proof of Stake</button>
@@ -39,6 +40,8 @@
         <label>Semilla<input name="semilla" type="number" min="0" value="2026"></label>
         <label>Créditos de sellado iniciales<input name="saldo_inicial" type="number" min="1" value="100"></label>
         <label>Recompensa por bloque (créditos)<input name="recompensa" type="number" min="1" value="50"></label>
+        <label>Contraseña de la simulación (opcional)<input name="contrasena" type="password" autocomplete="new-password"></label>
+        <p class="section-hint form-nota">Con contraseña, las claves de cada laboratorio se derivan de ella (scrypt) y la simulación es reproducible; sin contraseña son aleatorias.</p>
         <label class="check"><input name="reproducible" type="checkbox"> Modo reproducible (reloj simulado: con la misma semilla la simulación se repite igual)</label>
         <button class="btn" type="submit">Crear / reiniciar simulación</button>
       </form>

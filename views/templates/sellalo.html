@@ -4,10 +4,231 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sellalo · Nodo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
-<body>
-  <div id="app">Sellalo: cargando la interfaz del nodo…</div>
-  <p><a href="/simulador">Simulador de consenso</a></p>
-  <script src="{{ url_for('static', filename='sellalo.js') }}"></script>
+<body class="sellalo">
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg>
+    </div>
+    <div>
+      <h1>Sellalo · <span id="enc-lab">Nodo</span></h1>
+      <p class="subtitle"><span id="enc-red">Red Sellalo</span> · génesis <span class="mono" id="enc-genesis" title="">…</span></p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <span class="badge badge-idle lock-badge" id="enc-estado" role="status">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path id="ico-arco" d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+      <span id="enc-estado-txt">Conectando…</span>
+    </span>
+    <span class="badge badge-idle" id="enc-altura" title="Altura y punta de la cadena">altura – · punta –</span>
+    <a class="btn btn-on-dark btn-link" href="/simulador">Simulador de consenso</a>
+  </div>
+</header>
+
+<main id="app">
+  <div id="banda" class="sync-banner" role="status" aria-live="polite" hidden></div>
+
+  <!-- 1 · Identidad -->
+  <section class="card" id="seccion-identidad" aria-labelledby="t-identidad">
+    <h2 id="t-identidad"><span class="step">1</span>Identidad</h2>
+    <p class="section-hint">La clave privada de este laboratorio está cifrada en disco. Desbloquéala para firmar sellos, minar y conectarte a la red.</p>
+    <form id="form-desbloquear" class="form form-grid">
+      <label>Contraseña del laboratorio
+        <input id="in-contrasena" name="contrasena" type="password" autocomplete="current-password" required>
+      </label>
+      <div class="row-buttons">
+        <button class="btn" type="submit" id="btn-desbloquear">Desbloquear</button>
+        <button class="btn btn-ghost" type="button" id="btn-bloquear">Bloquear</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- 2 · Red -->
+  <section class="card" id="seccion-red" aria-labelledby="t-red">
+    <h2 id="t-red"><span class="step">2</span>Red</h2>
+    <p class="section-hint">Comparte tu IP y tu puerto P2P con los otros laboratorios; ellos harán lo mismo contigo.</p>
+    <div class="grid-2 inner-grid">
+      <div>
+        <h3 class="subhead">Mis direcciones</h3>
+        <p class="mono wrap" id="red-ips">–</p>
+        <p class="small muted">Puerto P2P: <strong class="mono" id="red-puerto">–</strong></p>
+        <form id="form-par" class="form form-grid" autocomplete="off">
+          <label>IP o host del par<input id="in-par-ip" name="ip" type="text" placeholder="192.168.1.20" required></label>
+          <label>Puerto<input id="in-par-puerto" name="puerto" type="number" min="1" max="65535" placeholder="6001" required></label>
+          <button class="btn" type="submit" id="btn-conectar">Conectar</button>
+        </form>
+      </div>
+      <div>
+        <h3 class="subhead">Pares conectados <span class="count" id="pares-count">0</span></h3>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Id</th><th>Dirección</th><th>Latencia</th><th>Altura</th><th>Punta</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
+            <tbody id="pares-cuerpo"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 · Sellar -->
+  <section class="card" id="seccion-sellar" aria-labelledby="t-sellar">
+    <h2 id="t-sellar"><span class="step">3</span>Sellar documento</h2>
+    <p class="section-hint">Sólo el hash SHA-256 del documento sale de tu PC; el contenido nunca se guarda ni se transmite.</p>
+    <form id="form-sello" class="form form-grid" autocomplete="off">
+      <label>Documento<input id="in-sello-archivo" name="archivo" type="file" required></label>
+      <label>Título<input id="in-sello-titulo" name="titulo" type="text" maxlength="120" required></label>
+      <label>Investigador<input id="in-sello-inv" name="investigador" type="text" maxlength="80" required></label>
+      <label>Umbral de firmas (1 a <span id="umbral-max">1</span>)<input id="in-sello-umbral" name="umbral" type="number" min="1" value="1" required></label>
+      <fieldset class="autores">
+        <legend>Autores (laboratorios)</legend>
+        <div id="autores-lista" class="check-grid"></div>
+      </fieldset>
+      <div class="row-buttons"><button class="btn" type="submit" id="btn-sellar">Firmar y proponer sello</button></div>
+    </form>
+    <div id="sello-resultado" class="resultado" hidden></div>
+  </section>
+
+  <!-- 4 · Co-firmas -->
+  <section class="card" id="seccion-firmas" aria-labelledby="t-firmas">
+    <h2 id="t-firmas"><span class="step">4</span>Co-firmas</h2>
+    <p class="section-hint">Un sello multifirma entra a pendientes cuando junta tantas firmas como su umbral.</p>
+    <div class="grid-2 inner-grid">
+      <div>
+        <h3 class="subhead">Esperan mi firma <span class="count" id="sol-count">0</span></h3>
+        <ul class="tx-list" id="solicitudes"></ul>
+      </div>
+      <div>
+        <h3 class="subhead">Mis sellos en firma <span class="count" id="enfirma-count">0</span></h3>
+        <ul class="tx-list" id="enfirma"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 · Pendientes y minado -->
+  <section class="card" id="seccion-minado" aria-labelledby="t-minado">
+    <div class="section-head">
+      <div>
+        <h2 id="t-minado"><span class="step">5</span>Pendientes y minado</h2>
+        <p class="section-hint">Minado real con prueba de trabajo: esta PC busca el nonce y difunde el bloque a los pares.</p>
+      </div>
+      <span class="badge badge-idle" id="minado-badge">detenido</span>
+    </div>
+    <div class="grid-2 inner-grid">
+      <div>
+        <h3 class="subhead">Pendientes <span class="count" id="pend-count">0</span></h3>
+        <ul class="tx-list" id="pendientes"></ul>
+      </div>
+      <div>
+        <form id="form-minar" class="form form-grid" autocomplete="off">
+          <label>Dificultad (ceros hex) <span class="muted small" id="dif-rango"></span>
+            <input id="in-dif" name="dificultad" type="number" min="1" max="6" value="3" required></label>
+          <label class="check"><input id="in-continuo" name="continuo" type="checkbox"> Minado continuo (sigue con los nuevos pendientes)</label>
+          <div class="row-buttons">
+            <button class="btn" type="submit" id="btn-minar">Iniciar minado</button>
+            <button class="btn btn-danger" type="button" id="btn-detener">Detener</button>
+          </div>
+        </form>
+        <dl class="kv" id="minado-stats">
+          <dt>Intentos</dt><dd class="mono" id="st-intentos">0</dd>
+          <dt>Hashes por segundo</dt><dd class="mono" id="st-hs">0</dd>
+          <dt>Nonce</dt><dd class="mono" id="st-nonce">0</dd>
+          <dt>Bloque</dt><dd class="mono" id="st-bloque">0</dd>
+          <dt>Bloques minados</dt><dd class="mono" id="st-minados">0</dd>
+        </dl>
+      </div>
+    </div>
+    <details class="plegable">
+      <summary>Transferir créditos de sellado</summary>
+      <form id="form-tx" class="form form-grid" autocomplete="off">
+        <label>Laboratorio receptor<select id="in-tx-receptor" name="receptor" required></select></label>
+        <label>Créditos<input id="in-tx-monto" name="monto" type="number" min="1" step="1" required></label>
+        <button class="btn" type="submit" id="btn-tx">Firmar y enviar</button>
+      </form>
+    </details>
+  </section>
+
+  <!-- 6 · Cadena -->
+  <section class="card" id="seccion-cadena" aria-labelledby="t-cadena">
+    <h2 id="t-cadena"><span class="step">6</span>Cadena</h2>
+    <p class="section-hint">Últimos bloques (el más nuevo arriba). Abre un bloque para ver sus transacciones.</p>
+    <div id="cadena" class="bloques"></div>
+  </section>
+
+  <!-- 7 · Prioridad y certificado -->
+  <section class="card" id="seccion-prioridad" aria-labelledby="t-prioridad">
+    <h2 id="t-prioridad"><span class="step">7</span>Prioridad y certificado</h2>
+    <p class="section-hint">Averigua quién selló un documento primero. La prioridad es del sello más antiguo en la cadena.</p>
+    <div class="grid-2 inner-grid">
+      <div>
+        <h3 class="subhead">Consultar un documento</h3>
+        <form id="form-prioridad" class="form" autocomplete="off">
+          <label>Documento<input id="in-prio-archivo" name="archivo" type="file"></label>
+          <label>o pega su hash SHA-256<input id="in-prio-hash" name="doc_hash" type="text" class="mono" maxlength="64" placeholder="64 caracteres hexadecimales" spellcheck="false"></label>
+          <div class="row-buttons">
+            <button class="btn" type="submit" id="btn-prio">Consultar</button>
+            <button class="btn btn-ghost" type="button" id="btn-cert" disabled>Descargar certificado</button>
+          </div>
+        </form>
+        <div id="prio-resultado" class="resultado" hidden></div>
+      </div>
+      <div>
+        <h3 class="subhead">Verificar un certificado</h3>
+        <form id="form-verificar" class="form" autocomplete="off">
+          <label>Certificado (.json)<input id="in-ver-cert" name="certificado" type="file" accept=".json,application/json" required></label>
+          <label>Documento original (opcional)<input id="in-ver-doc" name="documento" type="file"></label>
+          <button class="btn" type="submit" id="btn-verificar">Verificar</button>
+        </form>
+        <div id="ver-resultado" class="resultado" hidden></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 · Ataques -->
+  <section class="card" id="seccion-ataques" aria-labelledby="t-ataques">
+    <h2 id="t-ataques"><span class="step">8</span>Laboratorio de ataques</h2>
+    <p class="section-hint">Fabrica una manipulación sobre una copia y mira cómo se rechaza. Tu cadena honesta no cambia.</p>
+    <form id="form-ataque" class="form form-grid" autocomplete="off">
+      <label>Ataque<select id="in-ataque-tipo" name="tipo" required></select></label>
+      <label>Destino
+        <select id="in-ataque-destino" name="destino">
+          <option value="local">Sólo este nodo</option>
+          <option value="red">Este nodo y la red</option>
+        </select></label>
+      <button class="btn btn-danger" type="submit" id="btn-ataque">Lanzar ataque</button>
+    </form>
+    <div id="ataque-resultado" class="resultado" hidden></div>
+  </section>
+
+  <!-- 9 · Cuentas y bitácora -->
+  <section class="card" id="seccion-cuentas" aria-labelledby="t-cuentas">
+    <h2 id="t-cuentas"><span class="step">9</span>Cuentas y bitácora</h2>
+    <div class="grid-2 inner-grid">
+      <div>
+        <h3 class="subhead">Créditos por laboratorio</h3>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Laboratorio</th><th>Saldo</th><th>Disponible</th><th>Recompensa pendiente</th></tr></thead>
+            <tbody id="cuentas-cuerpo"></tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <div class="section-head">
+          <h3 class="subhead">Bitácora</h3>
+          <label class="inline-label">Tipo <select id="filtro-bitacora"><option value="">Todos</option></select></label>
+        </div>
+        <ul class="log" id="bitacora"></ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<script src="{{ url_for('static', filename='sellalo.js') }}"></script>
 </body>
 </html>
