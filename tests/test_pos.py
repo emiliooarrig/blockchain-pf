@@ -270,7 +270,8 @@ def test_todos_los_validadores_castigados_hasta_quedar_sin_saldo(red_pos):
             red_pos.motor.ronda_automatica()
             assert red_pos.motor.ronda["estado"] == "FALLIDA"
     assert rondas > 0
-    assert all(red_pos.saldo_disponible(n.id) == 0 for n in red_pos.nodos)
+    # (AUD-006) un nodo con todo su saldo comprometido participa con apuesta mínima y puede quedar en -1 disponible
+    assert all(red_pos.saldo_disponible(n.id) <= 0 for n in red_pos.nodos)
     assert red_pos.referencia().altura == 0 and todos_sincronizados(red_pos)
     assert all(s >= 0 for s in red_pos.referencia().estado.saldos.values())
 

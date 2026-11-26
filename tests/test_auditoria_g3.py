@@ -91,3 +91,55 @@ def test_aud_005_cli_sin_genesis_sale_con_codigo_3(claves, tmp_path, capsys):
     assert "NO CONCLUYENTE" in capsys.readouterr().out
     assert vc.main([str(ruta), "--genesis", g["hash"]]) == 0
     assert vc.main([str(ruta), "--genesis", "ab" * 32]) == 1
+
+
+# ---------------------------------------------------------------- PoS: ayudas
+def _forjar_bloque_pos(red, proponente, validadores, excluidos=(), castigos=(), intento=0, votantes=None):
+    """Arma a mano un bloque PoS (lo que haría un proponente malicioso) con las firmas reales de sus nodos."""
+    from models import merkle
+    from models.bloque import hash_bloque as hb
+    from models.pos import mensaje_propuesta, mensaje_voto
+    from models.cripto import sha256_hex
+    ref = red.referencia()
+    txs = [dict(red.pendientes[0])]
+    b = {"numero": ref.altura + 1, "timestamp": red.reloj(), "transacciones": txs, "hash_anterior": ref.ultimo_hash,
+         "raiz_merkle": merkle.raiz_transacciones(txs), "nonce": 0, "proponente": proponente,
+         "recompensa": ref.estado.params["recompensa"], "validadores": list(validadores), "intento": intento,
+         "excluidos": list(excluidos), "castigos": list(castigos), "firma_proponente": "", "votos": [], "hash": ""}
+    b["firma_proponente"] = red.nodo(proponente).claves.firmar(mensaje_propuesta(b))
+    hp = sha256_hex(mensaje_propuesta(b))
+    for v in validadores:
+        if votantes is not None and v["id"] not in votantes:
+            continue
+        b["votos"].append({"validador": v["id"], "peso": v["apuesta"], "a_favor": True,
+                           "firma": red.nodo(v["id"]).claves.firmar(mensaje_voto(hp, v["id"], True))})
+    b["hash"] = hb(b)
+    return b
+
+
+# ---------------------------------------------------------------- AUD-006
+def test_aud_006_un_solo_nodo_no_puede_ser_el_comite():
+    from tests.conftest import nueva_red
+    red = nueva_red("pos")
+    red.crear_transaccion("N00", "N01", 5)
+    b = _forjar_bloque_pos(red, "N00", [{"id": "N00", "apuesta": 1}])
+    cadena = red.referencia().cadena + [b]
+    with pytest.raises(ErrorValidacion, match="comité"):
+        validar_cadena(cadena, cadena[0]["hash"])
+    ok, motivo = red.nodo("N03").recibir_cadena(cadena)
+    assert not ok
+
+
+def test_aud_006_el_comite_derivado_si_se_acepta():
+    from tests.conftest import nueva_red
+    red = nueva_red("pos")
+    red.crear_transaccion("N00", "N01", 5)
+    red.motor.configurar(4, "A", 50, "firma")      # subconjunto reproducible de 4 nodos
+    red.motor.ronda_automatica()
+    b = red.referencia().cadena[1]
+    assert len(b["validadores"]) == 4
+    red.crear_transaccion("N00", "N01", 5)
+    red.motor.configurar(0, "A", 50, "firma")      # todos los nodos con saldo
+    red.motor.ronda_automatica()
+    assert len(red.referencia().cadena[2]["validadores"]) == 10
+    assert red.referencia().altura == 2

@@ -42,6 +42,16 @@ def sortear(validadores: list, hash_anterior: str, numero: int, intento: int):
     return None, None
 
 
+def comite_derivado(candidatos: list, hash_anterior: str, numero: int, tam: int) -> list:
+    """Comité reproducible (AUD-006): con `tam` >= nodos con saldo, todos; si no, los `tam` nodos cuyo
+    SHA-256(`hash_anterior|numero|id`) es menor. Depende sólo de la cadena y de `tam`; nadie lo elige a mano."""
+    candidatos = sorted(candidatos)
+    if tam >= len(candidatos):
+        return candidatos
+    clave = lambda nid: hashlib.sha256(f"{hash_anterior}|{numero}|{nid}".encode()).hexdigest()
+    return sorted(sorted(candidatos, key=clave)[:tam])
+
+
 def calcular_castigo(regla: str, apuesta: int, valor_transacciones: int, alfa_pct: int) -> int:
     """(A) c = a_p      (B) c = min(a_p, ⌈α · valor de las transacciones⌉), con α = alfa_pct / 100 y c ≥ 1."""
     if regla == "A":
@@ -102,6 +112,12 @@ def verificar_pos(estado, bloque: dict, con_votos: bool = True) -> None:
     corte = len(castigos) - len(excluidos)
     for c in castigos[:corte]:
         _revisar_castigo(estado, c)
+    # 1b) el comité debe ser derivable del estado: todos los nodos con saldo, o el subconjunto reproducible de su tamaño
+    con_saldo = [nid for nid in estado.claves if estado.saldos[nid] > 0]
+    esperado = comite_derivado(con_saldo, bloque["hash_anterior"], bloque["numero"], len(ids))
+    if ids != esperado:
+        raise ErrorValidacion("el comité de validadores no es el que se deriva del estado de la cadena "
+                              "(todos los nodos con saldo o el subconjunto reproducible de ese tamaño)")
     # 2) las apuestas de esta ronda no pueden superar el saldo
     for v in validadores:
         if v["apuesta"] > estado.saldos[v["id"]]:
@@ -222,14 +238,15 @@ class MotorPoS:
                 raise ErrorEstado("No hay transacciones pendientes: el proponente no tendría nada que proponer. "
                                   "Crea al menos una transacción.")
             ref = red.referencia()
-            con_saldo = [n.id for n in red.nodos if red.saldo_disponible(n.id) > 0]
-            if not con_saldo:
+            if not any(red.saldo_disponible(n.id) > 0 for n in red.nodos):
                 raise ErrorEstado("Ningún nodo tiene saldo disponible: no hay validadores posibles para la ronda.")
             self.contador += 1
+            # El comité se deriva igual que lo exige la validación (AUD-006): nodos con saldo (tras castigos pendientes).
+            con_saldo = [n.id for n in red.nodos
+                         if ref.estado.saldos[n.id] - sum(c["monto"] for c in self.castigos_pendientes
+                                                          if c["validador"] == n.id) > 0]
             tam = self.config["tam_comite"]
-            if tam and tam < len(con_saldo):
-                rng = red.rng_derivado(f"comite|{ref.ultimo_hash}|{self.contador}")
-                con_saldo = sorted(rng.sample(con_saldo, tam))
+            con_saldo = comite_derivado(con_saldo, ref.ultimo_hash, ref.altura + 1, tam or len(con_saldo))
             self.ronda = {
                 "id": self.contador, "estado": "APUESTAS", "numero": ref.altura + 1, "hash_anterior": ref.ultimo_hash,
                 "validadores": con_saldo, "apuestas": {}, "comite": [], "excluidos": [], "castigos": [],
@@ -279,12 +296,19 @@ class MotorPoS:
         with red.lock:
             r = self._exigir("APUESTAS", "SORTEO", "RECHAZADO")
             if r["estado"] == "APUESTAS":
+                # Quien tiene todo su saldo comprometido en transacciones pendientes no puede apostar más: el comité
+                # derivado lo incluye igual (AUD-006), así que participa con la apuesta mínima de 1.
+                for nid in r["validadores"]:
+                    if not r["apuestas"].get(nid) and red.saldo_disponible(nid) <= 0:
+                        r["apuestas"][nid] = 1
+                        red.evento("pos", f"{nid} no tiene saldo libre: participa con la apuesta mínima de 1.")
                 comite = [{"id": nid, "apuesta": r["apuestas"][nid]} for nid in r["validadores"] if r["apuestas"].get(nid)]
                 if not comite:
                     raise ErrorEstado("Ningún validador ha apostado; registra al menos una apuesta antes del sorteo.")
                 sin_apuesta = [nid for nid in r["validadores"] if not r["apuestas"].get(nid)]
                 if sin_apuesta:
-                    red.evento("pos", f"Sin apuesta, quedan fuera del comité: {', '.join(sin_apuesta)}.")
+                    raise ErrorEstado(f"Faltan las apuestas de {', '.join(sin_apuesta)}: el comité lo forman todos los "
+                                      f"validadores derivados de la cadena y cada uno debe apostar (AUD-006).")
                 r["comite"] = comite
             restantes = self._restantes()
             r["estado"] = "SORTEO"
