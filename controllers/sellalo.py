@@ -222,7 +222,19 @@ def resolver_host(host: str) -> str:
     return infos[0][4][0]
 
 
+_CACHE_DIRECCIONES = {"t": 0.0, "valor": None}
+_TTL_DIRECCIONES = 60.0
+
+
 def _direcciones_locales() -> list[str]:
+    """Direcciones de este equipo, en caché 60 s: la resolución de nombres puede tardar segundos (AUD-035)."""
+    ahora = time.monotonic()
+    if _CACHE_DIRECCIONES["valor"] is None or ahora - _CACHE_DIRECCIONES["t"] > _TTL_DIRECCIONES:
+        _CACHE_DIRECCIONES.update(valor=_calcular_direcciones_locales(), t=ahora)
+    return list(_CACHE_DIRECCIONES["valor"])
+
+
+def _calcular_direcciones_locales() -> list[str]:
     ips = set()
     try:
         ips.update(socket.gethostbyname_ex(socket.gethostname())[2])

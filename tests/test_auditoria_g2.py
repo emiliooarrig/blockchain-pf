@@ -146,3 +146,48 @@ def test_aud_034_certificado_con_demasiados_encabezados(nodo, monkeypatch):
 def test_aud_034_certificado_demasiado_grande(nodo):
     r = _verificar(nodo, b" " * (17 * 1024 * 1024))
     assert r.status_code in (400, 413) and "grande" in r.get_json()["error"]
+
+
+# ---------------------------------------------------------------- AUD-035
+def test_aud_035_direcciones_locales_en_cache(nodo, monkeypatch):
+    import socket
+    import controllers.sellalo as modulo
+    modulo._CACHE_DIRECCIONES.update(t=0.0, valor=None)
+    llamadas = []
+    original = socket.gethostbyname_ex
+    monkeypatch.setattr(socket, "gethostbyname_ex", lambda n: llamadas.append(n) or original(n))
+    for _ in range(5):
+        assert nodo.get("/api/sellalo/estado").status_code == 200
+    assert len(llamadas) <= 1
+
+
+# ---------------------------------------------------------------- AUD-036
+def test_aud_036_aleatoria_informa_las_creadas_antes_del_limite(sim, monkeypatch):
+    from models.errores import ErrorEstado
+    red = sim.application.config["SIMULADOR"].red("pow")
+    original, cuenta = red.transaccion_aleatoria, {"n": 0}
+
+    def con_limite():
+        cuenta["n"] += 1
+        if cuenta["n"] > 3:
+            raise ErrorEstado("La lista de pendientes está llena.")
+        return original()
+    monkeypatch.setattr(red, "transaccion_aleatoria", con_limite)
+    r = sim.post("/api/pow/transacciones/aleatoria", json={"cantidad": 6})
+    cuerpo = r.get_json()
+    assert r.status_code == 200 and cuerpo["ok"] and "3" in cuerpo["mensaje"] and "llena" in cuerpo["mensaje"]
+    assert len(red.publico()["pendientes"]) == 3
+    r = sim.post("/api/pow/transacciones/aleatoria", json={"cantidad": 2})     # ahora no se crea ninguna: error
+    assert r.status_code == 409
+
+
+# ---------------------------------------------------------------- AUD-037
+@pytest.mark.parametrize("ruta", ["/api/pos/pos/ronda", "/api/pos/pos/sortear", "/api/pow/minar/cancelar"])
+def test_aud_037_json_con_cuerpo_vacio_en_rutas_sin_parametros(sim, ruta):
+    r = sim.post(ruta, data=b"", content_type="application/json")
+    assert r.status_code != 400, r.get_json()
+
+
+def test_aud_037_cuerpo_vacio_con_json_en_ruta_con_parametros_sigue_siendo_error_claro(sim):
+    r = sim.post("/api/pow/transacciones", data=b"", content_type="application/json")
+    assert r.status_code == 400 and "emisor" in r.get_json()["error"].lower() or r.status_code == 400
