@@ -63,7 +63,8 @@ def preparar(n: int, carpeta: str, contrasena: str | None, http_base: int = PUER
 
 def comando(x: dict, genesis: str) -> list[str]:
     return [sys.executable, "app.py", "--modo", "nodo", "--nodo", x["id"], "--datos", x["datos"], "--genesis", genesis,
-            "--puerto", str(x["http"]), "--puerto-p2p", str(x["p2p"]), "--pares", x["pares"]]
+            "--puerto", str(x["http"]), "--puerto-p2p", str(x["p2p"]), "--pares", x["pares"],
+            "--laboratorio-ataques"]
 
 
 def lanzar(nodos: list[dict], genesis: str) -> int:

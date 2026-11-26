@@ -222,7 +222,8 @@ def estado():
              "puerto_p2p": servidor.puerto if servidor else ctx.puerto_p2p, "direcciones": _direcciones_locales()},
         laboratorios=[{"id": nid, "clave_publica": c["clave_publica"]} for nid, c in cuentas.items()],
         sellos_en_firma=ctx.coordinador.en_firma(), solicitudes=ctx.coordinador.solicitudes(),
-        ataques=ataques_sellalo.catalogo(), umbral_max_autores=5,
+        ataques=ataques_sellalo.catalogo(),
+        laboratorio_ataques=bool(current_app.config.get("LABORATORIO_ATAQUES")), umbral_max_autores=5,
         limites={"dificultad": [DIF_MIN, DIF_MAX], "titulo": TITULO_MAX, "investigador": INVESTIGADOR_MAX,
                  "monto_max": MONTO_MAX})
 
@@ -424,6 +425,9 @@ def verificar_certificado_ruta():
 # ---------------------------------------------------------------- ataques
 @sellalo.post("/ataques")
 def ataque():
+    if not current_app.config.get("LABORATORIO_ATAQUES"):
+        raise ErrorEstado("El laboratorio de ataques está desactivado: arranca el nodo con --laboratorio-ataques "
+                          "(sólo para demostraciones; firma con la clave real del nodo).")
     d = datos()
     tipo = d.get("tipo")
     if not isinstance(tipo, str) or tipo not in ataques_sellalo.TIPOS:

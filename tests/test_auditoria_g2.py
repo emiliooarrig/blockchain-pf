@@ -51,3 +51,34 @@ def test_aud_003_host_configurado_permitido():
     c = app.test_client()
     r = c.post("/api/pow/transacciones/aleatoria", json={}, headers={"Host": "nodo.lab.local:5000"})
     assert r.status_code == 200
+
+
+# ---------------------------------------------------------------- AUD-017
+def test_aud_017_laboratorio_de_ataques_desactivado_por_defecto(labs, tmp_path):
+    from app import create_app_nodo
+    from tests.laboratorios import CONTRASENA
+    _, genesis, rutas = labs
+    app = create_app_nodo(str(tmp_path / "d"), genesis, "LAB-A", puerto_p2p=0, ruta_clave=rutas["LAB-A"],
+                          host_p2p="127.0.0.1")
+    desbloqueado = app.test_client()
+    assert desbloqueado.post("/api/sellalo/desbloquear", json={"contrasena": CONTRASENA}).status_code == 200
+    r = desbloqueado.post("/api/sellalo/ataques", json={"tipo": "firma_falsa", "destino": "local"})
+    assert r.status_code == 409 and "--laboratorio-ataques" in r.get_json()["error"]
+    assert estado(desbloqueado)["laboratorio_ataques"] is False
+    app.config["CONTEXTO_NODO"].bloquear()
+
+
+def test_aud_017_laboratorio_activado_con_la_opcion(labs, tmp_path):
+    from app import create_app_nodo
+    from tests.laboratorios import CONTRASENA
+    _, genesis, rutas = labs
+    app = create_app_nodo(str(tmp_path / "d"), genesis, "LAB-A", puerto_p2p=0, ruta_clave=rutas["LAB-A"],
+                          host_p2p="127.0.0.1", laboratorio_ataques=True)
+    c = app.test_client()
+    try:
+        assert c.post("/api/sellalo/desbloquear", json={"contrasena": CONTRASENA}).status_code == 200
+        assert estado(c)["laboratorio_ataques"] is True
+        r = c.post("/api/sellalo/ataques", json={"tipo": "merkle_falsa", "destino": "red"})
+        assert r.status_code == 200 and r.get_json()["rechazado"]
+    finally:
+        app.config["CONTEXTO_NODO"].bloquear()

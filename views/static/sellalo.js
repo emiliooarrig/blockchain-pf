@@ -157,6 +157,7 @@
       if (previo) rec.value = previo;
     }
     actualizarUmbral();
+    $("#seccion-ataques").hidden = !e.laboratorio_ataques;     // AUD-017: sólo con --laboratorio-ataques
     const cl = `${e.ataques.map((a) => a.id).join(",")}`;
     if (cl !== ui.clavesAtaques) {
       ui.clavesAtaques = cl;

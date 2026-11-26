@@ -168,7 +168,7 @@ class RedLocal:
         pares = ",".join(f"127.0.0.1:{o.p2p}" for o in self.nodos.values() if o is not n)
         return [sys.executable, "-u", "app.py", "--modo", "nodo", "--nodo", nid, "--datos", n.datos,
                 "--genesis", self.ruta_genesis, "--puerto", n.url.rsplit(":", 1)[1], "--puerto-p2p", str(n.p2p),
-                "--pares", pares]
+                "--pares", pares, "--laboratorio-ataques"]
 
     def lanzar(self, nid: str) -> NodoRed:
         n = self.nodos[nid]

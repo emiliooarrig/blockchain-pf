@@ -36,7 +36,7 @@ def labs(tmp_path_factory):
 def app_nodo(labs, tmp_path):
     carpeta, genesis, rutas = labs
     app = create_app_nodo(str(tmp_path / "datos"), genesis, "LAB-A", puerto_p2p=0, ruta_clave=rutas["LAB-A"],
-                          host_p2p="127.0.0.1", opciones_p2p=OPCIONES)
+                          host_p2p="127.0.0.1", opciones_p2p=OPCIONES, laboratorio_ataques=True)
     app.config["TESTING"] = True
     yield app
     ctx = app.config["CONTEXTO_NODO"]
