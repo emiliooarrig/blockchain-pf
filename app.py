@@ -32,6 +32,9 @@ MAX_DOCUMENTO = 25 * 1024 * 1024     # modo nodo: documentos y certificados (el 
 
 
 HOSTS_LOCALES = {"127.0.0.1", "localhost", "[::1]"}
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; "
+       "font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; "
+       "base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 METODOS_SEGUROS = {"GET", "HEAD", "OPTIONS"}
 
 
@@ -82,6 +85,15 @@ def create_app(reproducible: bool = False, contrasena: str | None = None, contex
         if request.headers.get("Sec-Fetch-Site", "").lower() in ("cross-site", "same-site"):
             return jsonify(ok=False, error="Petición entre sitios rechazada."), 403
         return None
+
+    @app.after_request
+    def cabeceras_de_seguridad(resp):
+        """AUD-033: anti-clickjacking, anti-sniffing y CSP; las fuentes de Google se acotan por CSP (sin SRI)."""
+        resp.headers.setdefault("Content-Security-Policy", CSP)
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resp.headers.setdefault("X-Frame-Options", "DENY")
+        resp.headers.setdefault("Referrer-Policy", "no-referrer")
+        return resp
 
     @app.errorhandler(ErrorEntrada)
     def error_entrada(exc: ErrorEntrada):

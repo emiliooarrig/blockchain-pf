@@ -101,3 +101,19 @@ def test_aud_032_argumento_pares_resuelve_nombres():
     assert parsear_pares("localhost:6002,10.0.0.5:6003") == [("127.0.0.1", 6002), ("10.0.0.5", 6003)]
     with pytest.raises(ErrorEntrada):
         parsear_pares("no-existe.invalid:6002")
+
+
+# ---------------------------------------------------------------- AUD-033
+@pytest.mark.parametrize("ruta", ["/", "/api/pow/estado", "/static/app.js", "/no-existe"])
+def test_aud_033_cabeceras_de_seguridad(sim, ruta):
+    h = sim.get(ruta).headers
+    csp = h["Content-Security-Policy"]
+    assert "default-src 'self'" in csp and "frame-ancestors 'none'" in csp and "script-src 'self'" in csp
+    assert "fonts.googleapis.com" in csp and "fonts.gstatic.com" in csp
+    assert h["X-Content-Type-Options"] == "nosniff" and h["X-Frame-Options"] == "DENY"
+    assert h["Referrer-Policy"] == "no-referrer"
+
+
+def test_aud_033_cabeceras_en_modo_nodo(nodo):
+    assert "frame-ancestors 'none'" in nodo.get("/").headers["Content-Security-Policy"]
+    assert nodo.post("/api/sellalo/bloquear", json={}).headers["X-Frame-Options"] == "DENY"
