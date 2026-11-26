@@ -13,7 +13,7 @@ from models.pos import verificar_pos
 from models.pow import DIF_MAX, DIF_MIN, verificar_pow
 
 
-def validar_bloque(estado: Estado, bloque, propuesta: bool = False) -> list:
+def validar_bloque(estado: Estado, bloque, propuesta: bool = False, sin_pruebas: bool = False) -> list:
     """Valida `bloque` como sucesor del estado y lo aplica sobre `estado`.
     Devuelve las recompensas que maduraron con este bloque.
     Con propuesta=True (votación PoS) se omiten el hash final y los votos, que aún no existen."""
@@ -45,7 +45,7 @@ def validar_bloque(estado: Estado, bloque, propuesta: bool = False) -> list:
     if pos:
         if bloque["nonce"] != 0:
             raise ErrorValidacion("en PoS el nonce debe ser 0")
-        verificar_pos(estado, bloque, con_votos=not propuesta)
+        verificar_pos(estado, bloque, con_votos=not propuesta, sin_pruebas=sin_pruebas)
     else:
         verificar_pow(estado, bloque)
     aplicar_transacciones(estado, bloque["transacciones"], bloque["numero"])

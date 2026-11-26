@@ -113,9 +113,10 @@ def test_votacion_por_debajo_de_dos_tercios_se_rechaza(red_pos):
     red_pos.motor.votar(a, True)
     red_pos.motor.votar(b, False)                                   # c no vota: cuenta como no a favor
     red_pos.motor.cerrar_votacion()
-    assert r["estado"] == "RECHAZADO" and r["excluidos"] == [proponente]
-    assert red_pos.referencia().altura == 0
-    assert r["castigos"][0]["monto"] == 10                          # regla A: pierde toda la apuesta
+    # AUD-007: el candidato era válido, así que no hay prueba de fraude: no se castiga ni se excluye al proponente
+    assert r["estado"] == "CANCELADA" and r["excluidos"] == [] and r["castigos"] == []
+    assert proponente not in r["excluidos"] and red_pos.referencia().altura == 0
+    assert red_pos.motor.castigos_pendientes == []
 
 
 def test_votos_pesan_por_apuesta(red_pos):

@@ -143,3 +143,124 @@ def test_aud_006_el_comite_derivado_si_se_acepta():
     red.motor.ronda_automatica()
     assert len(red.referencia().cadena[2]["validadores"]) == 10
     assert red.referencia().altura == 2
+
+
+# ---------------------------------------------------------------- AUD-007
+def _escenario_castigo(red):
+    """Comité completo con 10 apuestas iguales: devuelve (validadores, excluido del intento 0, proponente del intento 1)."""
+    from models.pos import sortear
+    ref = red.referencia()
+    vals = [{"id": n.id, "apuesta": 10} for n in sorted(red.nodos, key=lambda n: n.id)]
+    ex = sortear(vals, ref.ultimo_hash, ref.altura + 1, 0)[0]["id"]
+    restantes = [v for v in vals if v["id"] != ex]
+    prop = sortear(restantes, ref.ultimo_hash, ref.altura + 1, 1)[0]["id"]
+    return vals, ex, prop
+
+
+def _castigo(ex, hp="ab" * 32, valor=5, **extra):
+    c = {"validador": ex, "apuesta": 10, "valor_transacciones": valor, "regla": "A", "alfa_pct": 50, "monto": 10,
+         "motivo": "votos insuficientes", "hash_propuesta": hp}
+    c.update(extra)
+    return c
+
+
+def _candidato_firmado(red, vals, proponente, fraudulento: bool):
+    """Candidato (sin hash ni votos) del intento 0 firmado por `proponente`; inválido si fraudulento (firma de tx rota)."""
+    from models import merkle
+    from models.pos import mensaje_propuesta
+    ref = red.referencia()
+    tx = dict(red.pendientes[0])
+    if fraudulento:
+        tx["firma"] = tx["firma"][:-1] + ("0" if tx["firma"][-1] != "0" else "1")
+    b = {"numero": ref.altura + 1, "timestamp": red.reloj(), "transacciones": [tx], "hash_anterior": ref.ultimo_hash,
+         "raiz_merkle": merkle.raiz_transacciones([tx]), "nonce": 0, "proponente": proponente,
+         "recompensa": ref.estado.params["recompensa"], "validadores": vals, "intento": 0, "excluidos": [],
+         "castigos": [], "firma_proponente": "", "votos": [], "hash": ""}
+    b["firma_proponente"] = red.nodo(proponente).claves.firmar(mensaje_propuesta(b))
+    return b
+
+
+def _bloque_con_castigo(red, castigo_fn):
+    vals, ex, prop = _escenario_castigo(red)
+    cand = None
+    from models.pos import mensaje_propuesta
+    from models.cripto import sha256_hex
+    candidato = _candidato_firmado(red, vals, ex, fraudulento=True)
+    cand = castigo_fn(vals, ex, candidato, sha256_hex(mensaje_propuesta(candidato)))
+    restantes = [v for v in vals if v["id"] != ex]
+    b = _forjar_bloque_pos(red, prop, vals, excluidos=[ex], castigos=[cand], intento=1,
+                           votantes={v["id"] for v in restantes})
+    return b
+
+
+def test_aud_007_castigo_sin_prueba_se_rechaza():
+    from tests.conftest import nueva_red
+    red = nueva_red("pos")
+    red.crear_transaccion("N00", "N01", 5)
+    b = _bloque_con_castigo(red, lambda vals, ex, cand, hp: _castigo(ex, hp))
+    cadena = red.referencia().cadena + [b]
+    with pytest.raises(ErrorValidacion, match="prueba"):
+        validar_cadena(cadena, cadena[0]["hash"])
+
+
+def test_aud_007_castigo_con_prueba_real_se_acepta():
+    from tests.conftest import nueva_red
+    red = nueva_red("pos")
+    red.crear_transaccion("N00", "N01", 5)
+    b = _bloque_con_castigo(red, lambda vals, ex, cand, hp: _castigo(ex, hp, propuesta=cand,
+                                                                       valor=cand["transacciones"][0]["monto"]))
+    cadena = red.referencia().cadena + [b]
+    validar_cadena(cadena, cadena[0]["hash"])
+
+
+def test_aud_007_la_prueba_debe_ser_invalida_y_estar_firmada_por_el_castigado():
+    from tests.conftest import nueva_red
+    from models.cripto import sha256_hex
+    from models.pos import mensaje_propuesta
+    red = nueva_red("pos")
+    red.crear_transaccion("N00", "N01", 5)
+    vals, ex, prop = _escenario_castigo(red)
+
+    def con(candidato_fn):
+        def f(vals, ex, _cand, _hp):
+            cand = candidato_fn(vals, ex)
+            return _castigo(ex, sha256_hex(mensaje_propuesta(cand)), propuesta=cand,
+                            valor=cand["transacciones"][0]["monto"])
+        return f
+    # candidato VÁLIDO del castigado: no hay fraude que probar
+    b = _bloque_con_castigo(red, con(lambda v, e: _candidato_firmado(red, v, e, fraudulento=False)))
+    cadena = red.referencia().cadena + [b]
+    with pytest.raises(ErrorValidacion, match="válida|fundamento"):
+        validar_cadena(cadena, cadena[0]["hash"])
+
+    # candidato inválido firmado por OTRO nodo (el acusador no puede fabricar el de la víctima)
+    def firmado_por_otro(v, e):
+        c = _candidato_firmado(red, v, e, fraudulento=True)
+        c["firma_proponente"] = red.nodo(prop).claves.firmar(mensaje_propuesta(c))
+        return c
+    b = _bloque_con_castigo(red, con(firmado_por_otro))
+    cadena = red.referencia().cadena + [b]
+    with pytest.raises(ErrorValidacion, match="firma"):
+        validar_cadena(cadena, cadena[0]["hash"])
+
+
+def test_aud_007_motor_registra_la_prueba_al_rechazar():
+    from tests.conftest import nueva_red
+    red = nueva_red("pos")
+    red.motor.configurar(0, "A", 50, "firma")
+    red.crear_transaccion("N00", "N01", 20)
+    red.motor.iniciar_ronda()
+    red.motor.apuestas_automaticas()
+    red.motor.sortear_proponente()
+    malo = red.motor.ronda["proponente"]
+    red.nodo(malo).deshonesto = True
+    red.motor.construir_candidato()
+    red.motor.votacion_automatica()
+    red.motor.cerrar_votacion()
+    c = red.motor.ronda["castigos"][0]
+    assert c["validador"] == malo and c["propuesta"]["firma_proponente"]
+    assert c["propuesta"]["hash"] == "" and c["propuesta"]["votos"] == []
+    red.motor.ronda_automatica()
+    bloque = red.referencia().cadena[1]
+    assert bloque["castigos"][0]["propuesta"]["proponente"] == malo
+    validar_cadena(red.referencia().cadena, red.referencia().cadena[0]["hash"])
