@@ -82,3 +82,22 @@ def test_aud_017_laboratorio_activado_con_la_opcion(labs, tmp_path):
         assert r.status_code == 200 and r.get_json()["rechazado"]
     finally:
         app.config["CONTEXTO_NODO"].bloquear()
+
+
+# ---------------------------------------------------------------- AUD-032
+def test_aud_032_pares_resuelve_nombres_de_host(desbloqueado, app_nodo):
+    servidor = app_nodo.config["CONTEXTO_NODO"].servidor
+    llamadas = []
+    servidor.conectar = lambda ip, puerto: llamadas.append((ip, puerto)) or "LAB-B"
+    r = desbloqueado.post("/api/sellalo/pares", json={"ip": "localhost", "puerto": 6002})
+    assert r.status_code == 200 and llamadas == [("127.0.0.1", 6002)]
+    r = desbloqueado.post("/api/sellalo/pares", json={"ip": "no-existe.invalid", "puerto": 6002})
+    assert r.status_code == 400 and r.get_json()["ok"] is False and len(llamadas) == 1
+
+
+def test_aud_032_argumento_pares_resuelve_nombres():
+    from app import parsear_pares
+    from models.errores import ErrorEntrada
+    assert parsear_pares("localhost:6002,10.0.0.5:6003") == [("127.0.0.1", 6002), ("10.0.0.5", 6003)]
+    with pytest.raises(ErrorEntrada):
+        parsear_pares("no-existe.invalid:6002")

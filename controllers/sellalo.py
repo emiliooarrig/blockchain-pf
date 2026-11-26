@@ -194,6 +194,23 @@ def _lista_autores(valor) -> list[str]:
     return autores
 
 
+def resolver_host(host: str) -> str:
+    """IP literal o nombre de host -> dirección IP (los nombres se resuelven antes de conectar; AUD-032). Es el mismo
+    validador para /pares y --pares. ErrorEntrada si no es una IP ni un nombre que resuelva."""
+    try:
+        ipaddress.ip_address(host)
+        return host
+    except ValueError:
+        pass
+    if not RE_HOST.match(host):
+        raise ErrorEntrada(f"«{host[:40]}» no es una dirección IP ni un nombre de host válido.")
+    try:
+        infos = socket.getaddrinfo(host, None, socket.AF_INET, socket.SOCK_STREAM)
+    except OSError:
+        raise ErrorEntrada(f"No se pudo resolver el nombre de host «{host[:40]}».") from None
+    return infos[0][4][0]
+
+
 def _direcciones_locales() -> list[str]:
     ips = set()
     try:
@@ -262,12 +279,7 @@ def conectar_par():
     ip = d.get("ip")
     if not isinstance(ip, str) or not ip.strip():
         raise ErrorEntrada("La dirección IP del par es obligatoria.")
-    ip = ip.strip()
-    try:
-        ipaddress.ip_address(ip)
-    except ValueError:
-        if not RE_HOST.match(ip):
-            raise ErrorEntrada(f"«{ip[:40]}» no es una dirección IP ni un nombre de host válido.") from None
+    ip = resolver_host(ip.strip())
     puerto = entero(d, "puerto", "El puerto del par", 1, 65535)
     servidor = _servidor_activo()
     par_id = servidor.conectar(ip, puerto)

@@ -12,7 +12,7 @@ from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
 
 from controllers import api, paginas
-from controllers.sellalo import ContextoNodo, paginas_nodo, sellalo
+from controllers.sellalo import ContextoNodo, paginas_nodo, resolver_host, sellalo
 from models import Simulador
 from models.coordinador_sellos import CoordinadorSellos
 from models.errores import ErrorEntrada
@@ -114,7 +114,7 @@ def parsear_pares(texto: str | None) -> list[tuple[str, int]]:
         host, _, puerto = item.rpartition(":")
         if not host or not puerto.isdigit() or not 1 <= int(puerto) <= 65535:
             raise ErrorEntrada(f"Par inválido «{item}»: usa ip:puerto (por ejemplo 127.0.0.1:6002).")
-        pares.append((host, int(puerto)))
+        pares.append((resolver_host(host), int(puerto)))
     return pares
 
 
