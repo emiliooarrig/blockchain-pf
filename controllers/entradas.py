@@ -15,7 +15,9 @@ FALSO = {"false", "0", "no", "off", "en_contra", "contra"}
 
 
 def datos() -> dict:
-    if request.is_json:
+    if request.is_json and not request.get_data(cache=True).strip():
+        cuerpo = {}                     # AUD-037: cuerpo vacío = sin parámetros (curl -X POST -H "Content-Type: ...json")
+    elif request.is_json:
         try:
             cuerpo = request.get_json(silent=True)
         except RecursionError:          # JSON anidado en exceso
