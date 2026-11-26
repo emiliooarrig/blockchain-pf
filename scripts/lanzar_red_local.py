@@ -4,7 +4,8 @@ Uso:
     python scripts/lanzar_red_local.py --labs 3 [--carpeta data/demo] [--contrasena-env VAR] [--lanzar]
 
 Crea (si no existen) las identidades LAB-A, LAB-B, ... con su almacén de claves cifrado y el génesis compartido, e
-imprime el comando que arranca cada nodo. Con --lanzar arranca los procesos si `app.py` ya soporta `--modo nodo`.
+imprime el comando que arranca cada nodo. Con --lanzar arranca un proceso por laboratorio (`app.py --modo nodo`) y
+los termina todos con Ctrl+C.
 La contraseña se pide una vez (o se lee de --contrasena-env) y se usa para todas las identidades de la demo.
 """
 import argparse
@@ -13,6 +14,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, RAIZ)
@@ -58,13 +60,34 @@ def comando(x: dict, genesis: str) -> list[str]:
             "--puerto", str(x["http"]), "--puerto-p2p", str(x["p2p"]), "--pares", x["pares"]]
 
 
-def app_soporta_nodo() -> bool:
+def lanzar(nodos: list[dict], genesis: str) -> int:
+    """Arranca un proceso por laboratorio, imprime sus URLs y los termina a todos con Ctrl+C."""
+    procesos = []
     try:
-        salida = subprocess.run([sys.executable, "app.py", "--help"], cwd=RAIZ, capture_output=True, text=True,
-                                timeout=60)
-        return "--modo" in (salida.stdout + salida.stderr)
-    except (OSError, subprocess.SubprocessError):
-        return False
+        for x in nodos:
+            procesos.append(subprocess.Popen(comando(x, genesis), cwd=RAIZ))
+        print(f"\n{len(procesos)} nodos lanzados (cada uno arranca bloqueado; desbloquéalo con su contraseña):")
+        for x in nodos:
+            print(f"  {x['id']}: http://127.0.0.1:{x['http']}  (P2P {x['p2p']})")
+        print("Ctrl+C para detenerlos.")
+        while procesos and any(p.poll() is None for p in procesos):
+            time.sleep(0.5)
+        print("Todos los nodos terminaron.")
+    except KeyboardInterrupt:
+        print("\nDeteniendo los nodos…")
+    except OSError as exc:
+        print(f"No se pudo lanzar un nodo: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        for p in procesos:
+            if p.poll() is None:
+                p.terminate()
+        for p in procesos:
+            try:
+                p.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                p.kill()
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -72,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--labs", type=int, default=3, help="número de laboratorios (3)")
     parser.add_argument("--carpeta", default="data/demo", help="carpeta de la demo (data/demo)")
     parser.add_argument("--contrasena-env", metavar="VAR", help="leer la contraseña de esta variable de entorno")
-    parser.add_argument("--lanzar", action="store_true", help="arrancar los nodos si app.py soporta --modo nodo")
+    parser.add_argument("--lanzar", action="store_true", help="arrancar un proceso por laboratorio")
     args = parser.parse_args(argv)
     try:
         contrasena = None
@@ -91,17 +114,7 @@ def main(argv: list[str] | None = None) -> int:
     for x in nodos:
         print(f"  [{x['id']}]  http://127.0.0.1:{x['http']}\n    " + " ".join(comando(x, genesis)))
     if args.lanzar:
-        if not app_soporta_nodo():
-            print("\napp.py todavía no soporta --modo nodo; no se lanzó ningún proceso.", file=sys.stderr)
-            return 0
-        procesos = [subprocess.Popen(comando(x, genesis), cwd=RAIZ) for x in nodos]
-        print(f"\n{len(procesos)} nodos lanzados. Ctrl+C para detenerlos.")
-        try:
-            for p in procesos:
-                p.wait()
-        except KeyboardInterrupt:
-            for p in procesos:
-                p.terminate()
+        return lanzar(nodos, genesis)
     return 0
 
 

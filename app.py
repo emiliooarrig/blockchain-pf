@@ -3,6 +3,7 @@
 Ejecutar:  flask run      (o bien: python app.py)
 """
 import argparse
+import json
 import logging
 import os
 
@@ -10,8 +11,11 @@ from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
 
 from controllers import api, paginas
+from controllers.sellalo import ContextoNodo, paginas_nodo, sellalo
 from models import Simulador
+from models.coordinador_sellos import CoordinadorSellos
 from models.errores import ErrorEntrada
+from models.nodo_completo import NodoCompleto
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MENSAJES_HTTP = {
@@ -23,17 +27,23 @@ MENSAJES_HTTP = {
 }
 
 
-def create_app(reproducible: bool = False, contrasena: str | None = None) -> Flask:
+MAX_DOCUMENTO = 25 * 1024 * 1024     # modo nodo: documentos y certificados (el contenido nunca se guarda)
+
+
+def create_app(reproducible: bool = False, contrasena: str | None = None, contexto_nodo: ContextoNodo | None = None) -> Flask:
+    """Modo simulador por defecto; con `contexto_nodo` (ver create_app_nodo) es un nodo de la red Sellalo."""
     app = Flask(__name__,
                 template_folder=os.path.join(BASE_DIR, "views", "templates"),
                 static_folder=os.path.join(BASE_DIR, "views", "static"))
-    app.config["MAX_CONTENT_LENGTH"] = 64 * 1024
+    app.config["MAX_CONTENT_LENGTH"] = MAX_DOCUMENTO if contexto_nodo else 64 * 1024
+    app.config["CONTEXTO_NODO"] = contexto_nodo
     app.config["JSON_SORT_KEYS"] = False
     app.json.sort_keys = False
     app.json.ensure_ascii = False
     app.config["SIMULADOR"] = Simulador(reproducible=reproducible, contrasena=contrasena)
-    app.register_blueprint(paginas)
+    app.register_blueprint(paginas_nodo if contexto_nodo else paginas)
     app.register_blueprint(api)
+    app.register_blueprint(sellalo)
 
     @app.errorhandler(ErrorEntrada)
     def error_entrada(exc: ErrorEntrada):
@@ -43,7 +53,7 @@ def create_app(reproducible: bool = False, contrasena: str | None = None) -> Fla
     def error_http(exc: HTTPException):
         mensaje = MENSAJES_HTTP.get(exc.code, exc.description or exc.name)
         if not request.path.startswith("/api/") and exc.code == 404:
-            return f"<h1>404</h1><p>{mensaje}</p><p><a href='/'>Volver al simulador</a></p>", 404
+            return f"<h1>404</h1><p>{mensaje}</p><p><a href='/'>Volver al inicio</a></p>", 404
         return jsonify(ok=False, error=mensaje), exc.code
 
     @app.errorhandler(Exception)
@@ -56,16 +66,71 @@ def create_app(reproducible: bool = False, contrasena: str | None = None) -> Fla
     return app
 
 
+def parsear_pares(texto: str | None) -> list[tuple[str, int]]:
+    """«ip:puerto,ip:puerto» -> [(ip, puerto)]. ErrorEntrada si algún par está mal escrito."""
+    pares = []
+    for item in (texto or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        host, _, puerto = item.rpartition(":")
+        if not host or not puerto.isdigit() or not 1 <= int(puerto) <= 65535:
+            raise ErrorEntrada(f"Par inválido «{item}»: usa ip:puerto (por ejemplo 127.0.0.1:6002).")
+        pares.append((host, int(puerto)))
+    return pares
+
+
+def create_app_nodo(dir_datos: str, ruta_genesis: str, nodo_id: str, puerto_p2p: int = 6000,
+                    pares: list[tuple[str, int]] | None = None, ruta_clave: str | None = None,
+                    host_p2p: str = "0.0.0.0", opciones_p2p: dict | None = None) -> Flask:
+    """Aplicación en modo nodo: construye el NodoCompleto (bloqueado) y el coordinador de sellos. El ServidorP2P se
+    crea cuando el nodo se desbloquea (POST /api/sellalo/desbloquear)."""
+    try:
+        with open(ruta_genesis, encoding="utf-8") as f:
+            genesis = json.load(f)
+    except OSError as exc:
+        raise ErrorEntrada(f"No se pudo leer el génesis «{ruta_genesis}»: {exc.strerror or exc}.") from None
+    except ValueError:
+        raise ErrorEntrada(f"El génesis «{ruta_genesis}» no es un JSON válido.") from None
+    ruta_clave = ruta_clave or os.path.join(dir_datos, "clave.json")
+    nodo = NodoCompleto(dir_datos, genesis, nodo_id, ruta_clave)
+    coordinador = CoordinadorSellos(nodo, dir_datos)
+    contexto = ContextoNodo(nodo, coordinador, host_p2p, puerto_p2p, pares, opciones_p2p)
+    return create_app(contexto_nodo=contexto)
+
+
 app = create_app()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Simulador de blockchain: Proof of Work y Proof of Stake.")
+    parser = argparse.ArgumentParser(description="Sellalo: simulador de blockchain y nodo de la red de sellado.")
+    parser.add_argument("--modo", choices=("simulador", "nodo"), default="simulador")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=5000)
+    parser.add_argument("--port", "--puerto", dest="port", type=int, default=5000, help="puerto HTTP")
+    nodo = parser.add_argument_group("modo nodo")
+    nodo.add_argument("--nodo", help="id del laboratorio (por ejemplo LAB-A)")
+    nodo.add_argument("--datos", help="carpeta de datos del nodo")
+    nodo.add_argument("--genesis", help="archivo genesis.json de la red")
+    nodo.add_argument("--clave", help="almacén de claves (por defecto <datos>/clave.json)")
+    nodo.add_argument("--puerto-p2p", type=int, default=6000)
+    nodo.add_argument("--pares", default="", help="pares iniciales: ip:puerto,ip:puerto")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
-    app.run(host=args.host, port=args.port, debug=False, threaded=True)
+    instancia = app
+    if args.modo == "nodo":
+        faltan = [n for n in ("nodo", "datos", "genesis") if not getattr(args, n)]
+        if faltan:
+            parser.error("--modo nodo requiere " + ", ".join(f"--{n}" for n in faltan))
+        if not 1 <= args.puerto_p2p <= 65535:
+            parser.error("--puerto-p2p debe estar entre 1 y 65535")
+        try:
+            instancia = create_app_nodo(args.datos, args.genesis, args.nodo, args.puerto_p2p,
+                                        parsear_pares(args.pares), args.clave)
+        except ErrorEntrada as exc:
+            parser.exit(1, f"Error: {exc}\n")
+        print(f"Nodo {args.nodo} bloqueado. Desbloquéalo en http://{args.host}:{args.port}/ "
+              f"(P2P: puerto {args.puerto_p2p}).", flush=True)
+    instancia.run(host=args.host, port=args.port, debug=False, threaded=True)
 
 
 if __name__ == "__main__":
