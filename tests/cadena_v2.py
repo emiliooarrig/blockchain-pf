@@ -38,8 +38,12 @@ class Claves:
         return self.privada.sign(datos).hex()
 
 
-def transferencia(emisor: str, receptor: str, monto: int, timestamp: float) -> dict:
-    return {"emisor": emisor, "receptor": receptor, "monto": monto, "timestamp": timestamp, "firma": "00" * 64}
+def transferencia(emisor: str, receptor: str, monto: int, timestamp: float, claves: dict | None = None) -> dict:
+    """Transferencia firmada como en el núcleo (sin claves, firma ficticia: el verificador no la revisa)."""
+    tx = {"emisor": emisor, "receptor": receptor, "monto": monto, "timestamp": timestamp}
+    datos = json.dumps(tx, sort_keys=True, separators=(",", ":")).encode()
+    tx["firma"] = claves[emisor].firmar(datos) if claves else "00" * 64
+    return tx
 
 
 def crear_sello(doc_hash, claves, autores_firmantes, titulo="Hallazgo de prueba", investigador="Dra. Ñandú",
@@ -56,7 +60,7 @@ def crear_genesis(claves: dict) -> dict:
     g = {"numero": 0, "timestamp": T0, "transacciones": [], "hash_anterior": "0" * 64,
          "raiz_merkle": merkle.raiz_transacciones([]), "nonce": 0, "proponente": "genesis", "recompensa": 0,
          "cuentas": {n: {"clave_publica": c.publica, "saldo": 100} for n, c in claves.items()},
-         "parametros": {"consenso": "pow", "red": "sellalo", "nombre": "prueba"}}
+         "parametros": {"consenso": "pow", "recompensa": 10, "confirmaciones": 6, "red": "sellalo", "nombre": "prueba"}}
     g["hash"] = hash_bloque(g)
     return g
 
@@ -86,13 +90,13 @@ def construir_cadena(dificultad: int = 1):
     claves = {n: Claves() for n in ("LAB-A", "LAB-B", "LAB-C")}
     g = crear_genesis(claves)
     ha, hb = sha(DOC_A), sha(DOC_B)
-    b1 = minar_bloque(g, [transferencia("LAB-A", "LAB-B", 5, T0 + 1), transferencia("LAB-B", "LAB-C", 2, T0 + 2)],
+    b1 = minar_bloque(g, [transferencia("LAB-A", "LAB-B", 5, T0 + 1, claves), transferencia("LAB-B", "LAB-C", 2, T0 + 2, claves)],
                       claves, "LAB-A", dificultad)
-    b2 = minar_bloque(b1, [transferencia("LAB-C", "LAB-A", 1, T0 + 3),
+    b2 = minar_bloque(b1, [transferencia("LAB-C", "LAB-A", 1, T0 + 3, claves),
                            crear_sello(ha, claves, ["LAB-A", "LAB-B"], titulo="Primer sello", timestamp=T0 + 11),
-                           transferencia("LAB-A", "LAB-C", 3, T0 + 12)], claves, "LAB-B", dificultad)
+                           transferencia("LAB-A", "LAB-C", 3, T0 + 12, claves)], claves, "LAB-B", dificultad)
     b3 = minar_bloque(b2, [crear_sello(hb, claves, ["LAB-B", "LAB-C"], laboratorio="LAB-B", timestamp=T0 + 21),
                            crear_sello(ha, claves, ["LAB-A", "LAB-C"], titulo="Sello posterior", timestamp=T0 + 22),
-                           transferencia("LAB-B", "LAB-A", 4, T0 + 23)], claves, "LAB-C", dificultad)
-    b4 = minar_bloque(b3, [transferencia("LAB-A", "LAB-B", 1, T0 + 31)], claves, "LAB-A", dificultad)
+                           transferencia("LAB-B", "LAB-A", 4, T0 + 23, claves)], claves, "LAB-C", dificultad)
+    b4 = minar_bloque(b3, [transferencia("LAB-A", "LAB-B", 1, T0 + 31, claves)], claves, "LAB-A", dificultad)
     return [g, b1, b2, b3, b4], claves
