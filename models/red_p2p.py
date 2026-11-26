@@ -9,6 +9,7 @@ las claves privadas.
 """
 import ipaddress
 import json
+import math
 import os
 import queue
 import select
@@ -25,6 +26,7 @@ MAX_LINEA = 1024 * 1024          # 1 MiB por línea
 MAX_BLOQUES_PAGINA = 100
 MAX_BLOQUES_SYNC = 200_000       # tope de seguridad al armar una cadena ajena
 FALTAS_PARA_VETO = 5
+MAX_LATENCIA_MS = 3_600_000.0     # tope de la latencia mostrada (1 h)
 TIPOS_SALUDO = ("HELLO", "HELLO_ACK", "AUTH", "HELLO_REJECT")
 TIPOS_BASE = ("PING", "PONG", "GET_BLOQUES", "BLOQUES", "BLOQUE", "TX", "BYE")
 
@@ -63,7 +65,7 @@ class _Lector:
                     continue
                 try:
                     msg = json.loads(linea.decode("utf-8"))
-                except (ValueError, UnicodeDecodeError):
+                except (ValueError, UnicodeDecodeError, RecursionError):   # RecursionError: JSON anidado en exceso
                     raise _Falta("JSON inválido")
                 if not isinstance(msg, dict) or not isinstance(msg.get("tipo"), str):
                     raise _Falta("mensaje sin campo 'tipo'")
@@ -555,8 +557,9 @@ class ServidorP2P:
             self._enviar(par, {"tipo": "PONG", "t": msg.get("t")})
         elif tipo == "PONG":
             t = msg.get("t")
-            if isinstance(t, (int, float)) and not isinstance(t, bool):
-                par.latencia_ms = round(max(0.0, (time.time() - t) * 1000), 2)
+            if isinstance(t, (int, float)) and not isinstance(t, bool) and math.isfinite(t):
+                # acotada: un par no puede meter Infinity/NaN en el JSON de /estado con una marca de tiempo absurda
+                par.latencia_ms = round(min(max(0.0, (time.time() - t) * 1000), MAX_LATENCIA_MS), 2)
         elif tipo == "BYE":
             raise _Cierre("el par se despidió (BYE)")
         elif tipo == "GET_BLOQUES":

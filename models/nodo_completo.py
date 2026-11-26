@@ -162,7 +162,7 @@ class NodoCompleto:
                 estado = validar_cadena(cadena, self.hash_genesis)
                 cadena[0] = self.genesis
                 self.cadena, self.estado = cadena, estado
-            except (OSError, ValueError, ErrorValidacion, AttributeError, TypeError) as exc:
+            except (OSError, ValueError, ErrorValidacion, AttributeError, TypeError, RecursionError) as exc:
                 motivo = str(exc) or type(exc).__name__
             if motivo:
                 destino = f"{ruta}.corrupto-{int(time.time())}"
@@ -180,8 +180,12 @@ class NodoCompleto:
                 cargadas = json.load(f)
             if not isinstance(cargadas, list):
                 cargadas = []
-        except (OSError, ValueError):
+                self.evento("pendientes", "pendientes.json no contiene una lista; se empieza sin pendientes.")
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError, RecursionError) as exc:
             cargadas = []
+            self.evento("pendientes", f"No se pudo leer pendientes.json ({type(exc).__name__}); se empieza sin pendientes.")
         if cargadas:
             self.pendientes = self._depurar(cargadas[:MAX_PENDIENTES])
             if len(self.pendientes) != len(cargadas):
