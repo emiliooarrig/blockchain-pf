@@ -241,10 +241,40 @@ class ServidorP2P:
   `raiz_merkle` del bloque indicado, y opcionalmente `SHA-256(archivo) == doc_hash`.
   Imprime fecha del bloque, autores, laboratorio, bloque y confirmaciones; o el motivo exacto del rechazo. Código de salida 0/1.
 
-## C7 · Rutas HTTP de la red Sellalo (A4)
+## C7 · Aplicación en modo nodo y rutas HTTP de la red Sellalo (A4 implementa, A6 consume)
 
-Prefijo `/api/sellalo`. Todas responden `{ok, ...}` o `{ok: false, error}`; nunca 500 por datos mal formados.
-El simulador conserva `/api/pow/...` y `/api/pos/...` sin cambios.
+### Arranque
 
-`app.py`: `--modo simulador|nodo` (por defecto `simulador`, para no romper `flask run`), y en modo nodo:
-`--nodo LAB-A --datos data/LAB-A --genesis red/genesis.json --puerto-p2p 6000 --pares ip:puerto,...`.
+- `python app.py` / `flask run` → **modo simulador** (como hoy; `/` es el simulador PoW/PoS).
+- `python app.py --modo nodo --nodo LAB-A --datos data/demo/LAB-A --genesis data/demo/genesis.json --puerto 5001 --puerto-p2p 6001 --pares 127.0.0.1:6002,127.0.0.1:6003 [--host 127.0.0.1] [--clave data/demo/LAB-A/clave.json]`
+  → **modo nodo**: `/` es la página Sellalo (`views/templates/sellalo.html`), `/simulador` el simulador.
+  La clave por defecto es `<datos>/clave.json`. El nodo arranca **bloqueado**; al desbloquearse inicia el `ServidorP2P`
+  (`0.0.0.0:<puerto-p2p>`) y se conecta a `--pares` (los fallos de conexión van a la bitácora, no detienen nada).
+- En modo simulador, `/api/sellalo/*` responde 409 `"Este proceso no es un nodo Sellalo; arráncalo con --modo nodo."`.
+- `MAX_CONTENT_LENGTH` = 25 MiB (documentos). El contenido del documento **nunca** se guarda ni se transmite: sólo su SHA-256.
+
+### Rutas (`controllers/sellalo.py`, prefijo `/api/sellalo`)
+
+Respuesta: `{ok: true, mensaje?, ...}` o `{ok: false, error}` con 400/409; nunca 500 por datos del usuario.
+`archivo` = campo multipart; si en su lugar llega `doc_hash` (hex 64) se usa tal cual.
+
+| Método | Ruta | Entrada | Salida |
+|---|---|---|---|
+| GET | `/estado` | — | `nodo` (= `NodoCompleto.publico()`), `pares` (= `pares_publico()` o `[]`), `red` `{nombre, hash_genesis, puerto_p2p, direcciones}` (IPs locales), `laboratorios` `[{id, clave_publica}]`, `sellos_en_firma` (ver abajo), `solicitudes` (sellos en firma donde soy autor y aún no firmé) |
+| POST | `/desbloquear` | `{contrasena}` | inicia P2P y conecta a los pares configurados |
+| POST | `/bloquear` | — | detiene minado y P2P |
+| POST | `/pares` | `{ip, puerto}` | `{par}` |
+| POST | `/pares/<id>/desconectar` | — | |
+| POST | `/sellos` | multipart `archivo` o `doc_hash`, `titulo`, `investigador`, `autores` (lista o CSV; debe incluir al propio nodo), `umbral` | `{sello: {id, doc_hash, estado: "en_firma"\|"pendiente", firmas, umbral}}` — el nodo firma de inmediato; si `umbral == 1` pasa directo a pendientes y se difunde como `TX`; si no, se difunde `SELLO_PROPUESTO` |
+| POST | `/sellos/<id>/firmar` | — | agrega mi firma, difunde `SELLO_FIRMA`; al llegar al umbral el nodo que lo completa lo agrega a pendientes y lo difunde como `TX` |
+| POST | `/minar` | `{dificultad, continuo}` | |
+| POST | `/minar/detener` | — | |
+| POST | `/transferencias` | `{receptor, monto}` | `{id}` |
+| POST | `/prioridad` | multipart `archivo` o `doc_hash` | `{doc_hash, sellos: NodoCompleto.prioridad(...)}` (`sellos: []` si no está sellado) |
+| GET | `/certificado/<doc_hash>` | — | descarga `certificado-<8 hex>.json` (`Content-Disposition: attachment`); 400 si no está sellado |
+| POST | `/certificado/verificar` | multipart `certificado` (JSON) y opcional `documento` | `{valido, motivo, detalle, resumen}` usando `verificar_certificado.verificar` |
+| POST | `/ataques` | `{tipo, destino: "local"\|"red"}`; `tipo` ∈ `sello_alterado`, `firma_falsa`, `merkle_falsa`, `cadena_corta`, `multifirma_incompleta`, `firma_minero_ajena` | `{rechazado: bool, motivos: [...]}` — construye una copia manipulada de la cadena/bloque y la entrega al propio nodo (`local`) o la envía a los pares (`red`); en ningún caso cambia la cadena honesta |
+
+`sellos_en_firma[]`: `{id, doc_hash, titulo, investigador, laboratorio, autores, umbral, firmas: [ids], faltan: n, creado}`.
+Persistencia en `<datos>/sellos_en_firma.json` (escritura atómica). Coordinación en `models/coordinador_sellos.py`
+(`CoordinadorSellos(nodo, servidor)`), que registra los manejadores `SELLO_PROPUESTO` y `SELLO_FIRMA` del transporte.
