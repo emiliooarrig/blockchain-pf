@@ -109,3 +109,58 @@ def test_aud_008_saludo_legitimo_con_firma_ligada(claves, servidores):
     k.enviar({"tipo": "AUTH", "firma_reto": firma_auth(b, reto, ack["reto"], "LAB-B", "LAB-A")})
     assert esperar(lambda: ids_de(sa) == {"LAB-B"})
     k.cerrar()
+
+
+def crudo_autenticado(servidor, nodo_servidor, claves, nombre, **extra):
+    """Par manual que completa el saludo (con firma ligada al canal) como `nombre`."""
+    k = Crudo(servidor.puerto)
+    reto = "ab" * 16
+    k.enviar(hello_de(nodo_servidor, nombre, reto=reto, **extra))
+    ack = k.leer()
+    assert ack["tipo"] == "HELLO_ACK"
+    propio = NodoFalso(nombre, claves, genesis=nodo_servidor.genesis)
+    k.enviar({"tipo": "AUTH", "firma_reto": firma_auth(propio, reto, ack["reto"], nombre, ack["nodo"])})
+    assert esperar(lambda: nombre in ids_de(servidor))
+    return k
+
+
+# ---------------------------------------------------------------- AUD-009
+def test_aud_009_bloque_basura_con_hash_ajeno_no_quema_el_legitimo(claves, servidores):
+    a = NodoFalso("LAB-A", claves)
+    sa = servidores(a)
+    legitimo = hacer_bloque(a.cadena[0], "legitimo")
+    m = crudo_autenticado(sa, a, claves, "LAB-B")
+    basura = {"numero": 1, "hash_anterior": "ff" * 32, "hash": legitimo["hash"], "marca": "basura"}
+    m.enviar({"tipo": "BLOQUE", "bloque": basura})
+    assert esperar(lambda: sa.faltas_de("LAB-B") >= 1 or len(a.llamadas_bloque) >= 1)
+    c = crudo_autenticado(sa, a, claves, "LAB-C")
+    c.enviar({"tipo": "BLOQUE", "bloque": legitimo})
+    assert esperar(lambda: len(a.cadena) == 2)             # el bloque verdadero entra pese al hash repetido
+    m.cerrar()
+    c.cerrar()
+
+
+class NodoRechazaUnaVez(NodoFalso):
+    """Rechaza la primera vez cada transacción (p. ej. llegó antes que su financiación) y la acepta después."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.intentos = {}
+
+    def agregar_transaccion(self, tx, origen=""):
+        n = self.intentos[tx["id"]] = self.intentos.get(tx["id"], 0) + 1
+        if n == 1:
+            raise ErrorEntrada("saldo insuficiente")
+        return super().agregar_transaccion(tx, origen)
+
+
+def test_aud_009_tx_rechazada_no_queda_marcada_como_vista(claves, servidores):
+    a = NodoRechazaUnaVez("LAB-A", claves)
+    sa = servidores(a)
+    m = crudo_autenticado(sa, a, claves, "LAB-B")
+    tx = {"id": "t" * 64, "emisor": "LAB-B", "receptor": "LAB-A", "monto": 5}
+    m.enviar({"tipo": "TX", "tx": tx})
+    assert esperar(lambda: a.intentos.get(tx["id"]) == 1)
+    m.enviar({"tipo": "TX", "tx": tx})                     # reintento tras llegar la financiación
+    assert esperar(lambda: tx in a.pendientes)
+    m.cerrar()

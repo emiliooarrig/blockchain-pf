@@ -214,17 +214,22 @@ class ServidorP2P:
                 self._vistos.popitem(last=False)
             return False
 
+    def _fue_visto(self, clave: str) -> bool:
+        """Consulta sin marcar: un mensaje sólo se marca después de que el nodo lo aceptó."""
+        with self._lock:
+            if clave in self._vistos:
+                self._vistos.move_to_end(clave)
+                return True
+            return False
+
     @staticmethod
     def _clave_dedup(msg_tipo: str, obj) -> str:
-        if isinstance(obj, dict):
-            if msg_tipo == "BLOQUE" and isinstance(obj.get("hash"), str):
-                return "B:" + obj["hash"]
-            if msg_tipo == "TX" and isinstance(obj.get("id"), str):
-                return "T:" + obj["id"]
+        """Clave de deduplicación por el CONTENIDO completo (nunca por el hash que el par declare): un mensaje basura
+        con el hash de uno legítimo no puede hacer que se descarte el verdadero."""
         try:
             return msg_tipo + ":" + sha256_hex(canonico(obj))
-        except (TypeError, ValueError):
-            return msg_tipo + ":" + repr(obj)[:200]
+        except (TypeError, ValueError, RecursionError):
+            return msg_tipo + ":" + sha256_hex(repr(obj)[:2000])
 
     # ---------- envío ----------
     def _enviar(self, par: _Par, msg: dict) -> bool:
@@ -646,13 +651,16 @@ class ServidorP2P:
         bloque = msg.get("bloque")
         if not isinstance(bloque, dict):
             raise _Falta("BLOQUE sin objeto 'bloque'")
-        if self._visto(self._clave_dedup("BLOQUE", bloque)):
+        clave = self._clave_dedup("BLOQUE", bloque)
+        if self._fue_visto(clave):
             return
         if isinstance(bloque.get("numero"), int) and not isinstance(bloque["numero"], bool):
             par.altura = max(par.altura, bloque["numero"])
         if isinstance(bloque.get("hash"), str):
             par.punta = bloque["hash"][:128]
         estado, motivo = self.nodo.recibir_bloque(bloque, de=par.id)
+        if estado in ("aceptado", "duplicado"):
+            self._visto(clave)
         if estado == "aceptado":
             self.difundir("BLOQUE", {"bloque": bloque}, excepto=par.id)
         elif estado == "sincronizar":
@@ -664,12 +672,14 @@ class ServidorP2P:
         tx = msg.get("tx")
         if not isinstance(tx, dict):
             raise _Falta("TX sin objeto 'tx'")
-        if self._visto(self._clave_dedup("TX", tx)):
+        clave = self._clave_dedup("TX", tx)
+        if self._fue_visto(clave):
             return
         try:
             self.nodo.agregar_transaccion(tx, origen=par.id)
         except (ErrorEntrada, ErrorEstado) as exc:
             raise _Falta(f"transacción rechazada: {str(exc)[:120]}")
+        self._visto(clave)
         self.difundir("TX", {"tx": tx}, excepto=par.id)
 
     # ---------- sincronización ----------
