@@ -23,7 +23,7 @@ MENSAJES_HTTP = {
 }
 
 
-def create_app(reproducible: bool = False) -> Flask:
+def create_app(reproducible: bool = False, contrasena: str | None = None) -> Flask:
     app = Flask(__name__,
                 template_folder=os.path.join(BASE_DIR, "views", "templates"),
                 static_folder=os.path.join(BASE_DIR, "views", "static"))
@@ -31,7 +31,7 @@ def create_app(reproducible: bool = False) -> Flask:
     app.config["JSON_SORT_KEYS"] = False
     app.json.sort_keys = False
     app.json.ensure_ascii = False
-    app.config["SIMULADOR"] = Simulador(reproducible=reproducible)
+    app.config["SIMULADOR"] = Simulador(reproducible=reproducible, contrasena=contrasena)
     app.register_blueprint(paginas)
     app.register_blueprint(api)
 

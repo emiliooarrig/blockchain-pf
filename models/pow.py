@@ -10,6 +10,8 @@ import threading
 import time
 
 from models.bloque import MAX_TX_POR_BLOQUE, ErrorValidacion, copiar, es_entero, hash_bloque, preparar_hasher
+from models import merkle
+from models.cripto import LARGO_FIRMA_HEX, es_hex, verificar
 from models.errores import ErrorEntrada, ErrorEstado
 
 DIF_MIN, DIF_MAX = 1, 6
@@ -28,12 +30,16 @@ def cumple_objetivo(h: str, dificultad: int) -> bool:
     return h.startswith("0" * dificultad)
 
 
-def verificar_pow(bloque: dict) -> None:
+def verificar_pow(estado, bloque: dict) -> None:
     d = bloque["dificultad"]
     if not es_entero(d) or not DIF_MIN <= d <= DIF_MAX:
         raise ErrorValidacion(f"dificultad fuera de rango ({d!r}); debe estar entre {DIF_MIN} y {DIF_MAX}")
     if not cumple_objetivo(bloque["hash"], d):
         raise ErrorValidacion(f"el hash no cumple la prueba de trabajo (requiere {d} ceros iniciales)")
+    firma = bloque["firma_minero"]
+    clave = estado.claves.get(bloque["proponente"])
+    if clave is None or not es_hex(firma, LARGO_FIRMA_HEX) or not verificar(clave, bytes.fromhex(bloque["hash"]), firma):
+        raise ErrorValidacion(f"firma_minero inválida: el hash no está firmado por el proponente {bloque['proponente']}")
 
 
 class Minero:
@@ -175,11 +181,13 @@ class MotorPoW:
             "timestamp": red.reloj(),
             "transacciones": copiar(red.pendientes[:MAX_TX_POR_BLOQUE]),
             "hash_anterior": ref.ultimo_hash,
+            "raiz_merkle": "",
             "nonce": 0,
             "proponente": "",
             "recompensa": ref.estado.params["recompensa"],
             "dificultad": self.config["dificultad"],
         }
+        self.base["raiz_merkle"] = merkle.raiz_transacciones(self.base["transacciones"])
         # Cada minero mina el bloque con SU identificador como proponente (así nadie puede robar el nonce ajeno).
         self.mineros = [Minero(i, nodo.id, preparar_hasher({**self.base, "proponente": nodo.id}))
                         for i, nodo in enumerate(red.nodos)]
@@ -193,6 +201,7 @@ class MotorPoW:
             m.estado = "ganador" if m is ganador else "detenido"
         bloque = {**self.base, "proponente": ganador.id, "nonce": ganador.nonce}
         bloque["hash"] = hash_bloque(bloque)
+        bloque["firma_minero"] = red.nodo(ganador.id).claves.firmar(bytes.fromhex(bloque["hash"]))
         total = sum(m.intentos for m in self.mineros)
         empate = ""
         if len(ganadores) > 1:

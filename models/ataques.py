@@ -3,6 +3,7 @@
 Ningún ataque modifica la cadena real de ningún nodo: se trabaja sobre una copia y cada nodo receptor
 la valida y la rechaza con el motivo correspondiente.
 """
+from models import merkle
 from models.bloque import MAX_TX_POR_BLOQUE, copiar, hash_bloque, nueva_transaccion, preparar_hasher
 from models.cripto import sha256_hex
 from models.errores import ErrorEntrada, ErrorEstado
@@ -83,17 +84,20 @@ def _f_bloque_intermedio(red, atacante, cadena, altura):
     k = altura // 2
     b = cadena[k]
     if red.consenso == "pow":
-        # Se roba el bloque: cambia el proponente (y su recompensa) y lo vuelve a minar. El bloque k queda
-        # válido por sí solo, pero el hash_anterior del bloque k+1 ya no coincide → se rechaza toda la cadena.
-        nuevo = next(n.id for n in red.nodos if n.id != b["proponente"])
-        b["proponente"] = nuevo
-        _minar(b)
-        return (f"{atacante.id} reescribió el bloque intermedio #{k} (proponente → {nuevo}) y lo volvió a minar; "
+        # Se roba el bloque: el atacante se pone de proponente (y de receptor de la recompensa), lo vuelve a minar
+        # y lo firma con su propia clave. El bloque k queda válido por sí solo, pero el hash_anterior del
+        # bloque k+1 ya no coincide → se rechaza toda la cadena.
+        nuevo = atacante if atacante.id != b["proponente"] else next(n for n in red.nodos if n.id != b["proponente"])
+        b["proponente"] = nuevo.id
+        _minar(b, nuevo.claves)
+        return (f"{atacante.id} reescribió el bloque intermedio #{k} (proponente → {nuevo.id}) y lo volvió a minar; "
                 f"el bloque #{k + 1} ya no enlaza con él.")
     tx = b["transacciones"][0]
     tx["monto"] += 1
+    b["raiz_merkle"] = merkle.raiz_transacciones(b["transacciones"])
     b["hash"] = hash_bloque(b)
-    return f"{atacante.id} subió en 1 el monto de una transacción del bloque intermedio #{k} y recalculó su hash."
+    return (f"{atacante.id} subió en 1 el monto de una transacción del bloque intermedio #{k} y recalculó la raíz "
+            f"de Merkle y el hash.")
 
 
 def _f_cadena_corta(red, atacante, cadena, altura):
@@ -110,9 +114,9 @@ def _f_mal_formada(red, atacante, cadena, altura):
 def _bloque_pow_sobre(red, atacante, cadena, transacciones, recompensa) -> dict:
     tope = cadena[-1]
     b = {"numero": tope["numero"] + 1, "timestamp": red.reloj(), "transacciones": transacciones,
-         "hash_anterior": tope["hash"], "nonce": 0, "proponente": atacante.id, "recompensa": recompensa,
+         "hash_anterior": tope["hash"], "raiz_merkle": merkle.raiz_transacciones(transacciones), "nonce": 0, "proponente": atacante.id, "recompensa": recompensa,
          "dificultad": red.motor.config["dificultad"]}
-    _minar(b)
+    _minar(b, atacante.claves)
     cadena.append(b)
     return b
 
@@ -183,12 +187,14 @@ _FABRICAS = {
 }
 
 
-def _minar(bloque: dict) -> None:
+def _minar(bloque: dict, claves) -> None:
+    """Busca el nonce y firma el hash con `claves` (la firma del minero no entra al hash)."""
     calcular = preparar_hasher(bloque)
     for nonce in range(LIMITE_MINADO_ATAQUE):
         h = calcular(nonce)
         if cumple_objetivo(h, bloque["dificultad"]):
             bloque["nonce"], bloque["hash"] = nonce, h
+            bloque["firma_minero"] = claves.firmar(bytes.fromhex(h))
             return
     raise ErrorEstado(f"El atacante no logró minar el bloque falso con dificultad {bloque['dificultad']} "
                       f"en {LIMITE_MINADO_ATAQUE:,} intentos; usa una dificultad menor.")

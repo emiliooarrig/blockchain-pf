@@ -8,6 +8,7 @@ import math
 from flask import request
 
 from models.errores import ErrorEntrada
+from models.keystore import CONTRASENA_MAX, CONTRASENA_MIN
 
 VERDADERO = {"true", "1", "si", "sí", "on", "a_favor", "favor"}
 FALSO = {"false", "0", "no", "off", "en_contra", "contra"}
@@ -79,6 +80,20 @@ def texto(d: dict, campo: str, nombre: str, obligatorio: bool = True) -> str | N
     if not isinstance(valor, str):
         raise ErrorEntrada(f"{nombre} debe ser texto.")
     return valor.strip()[:40]
+
+
+def contrasena(d: dict, campo: str, nombre: str) -> str | None:
+    """Contraseña opcional (nunca se recorta ni se repite en los mensajes de error)."""
+    valor = d.get(campo)
+    if valor is None or valor == "":
+        return None
+    if not isinstance(valor, str):
+        raise ErrorEntrada(f"{nombre} debe ser texto.")
+    if len(valor) < CONTRASENA_MIN:
+        raise ErrorEntrada(f"{nombre} debe tener al menos {CONTRASENA_MIN} caracteres.")
+    if len(valor) > CONTRASENA_MAX:
+        raise ErrorEntrada(f"{nombre} no puede pasar de {CONTRASENA_MAX} caracteres.")
+    return valor
 
 
 def booleano(d: dict, campo: str, nombre: str, defecto: bool | None = None) -> bool:

@@ -1,8 +1,8 @@
 """Transacciones, bloques, hash canónico y estado de cuentas derivado de una cadena.
 
 Estructura común del bloque (PoW y PoS):
-    numero, timestamp, transacciones, hash_anterior, nonce, proponente, recompensa, hash
-PoW agrega:  dificultad
+    numero, timestamp, transacciones, hash_anterior, raiz_merkle, nonce, proponente, recompensa, hash
+PoW agrega:  dificultad, firma_minero (firma del proponente sobre el hash, fuera del hash)
 PoS agrega:  validadores, intento, excluidos, castigos, firma_proponente, votos
 El génesis (numero 0) agrega: cuentas (clave pública y saldo inicial de cada nodo) y parametros.
 """
@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 
+from models import merkle
 from models.cripto import LARGO_FIRMA_HEX, es_hex, sha256_hex, verificar
 
 CAMPOS_TX = ("emisor", "receptor", "monto", "timestamp")
@@ -18,8 +19,10 @@ MONTO_MAX = 10**9
 MAX_TX_POR_BLOQUE = 10
 HASH_CERO = "0" * 64
 
-CAMPOS_COMUNES = ("numero", "timestamp", "transacciones", "hash_anterior", "nonce", "proponente", "recompensa", "hash")
-CAMPOS_POW = CAMPOS_COMUNES + ("dificultad",)
+CAMPOS_COMUNES = ("numero", "timestamp", "transacciones", "hash_anterior", "raiz_merkle", "nonce", "proponente",
+                  "recompensa", "hash")
+EXCLUIDOS_HASH = ("hash", "transacciones", "firma_minero")
+CAMPOS_POW = CAMPOS_COMUNES + ("dificultad", "firma_minero")
 CAMPOS_POS = CAMPOS_COMUNES + ("validadores", "intento", "excluidos", "castigos", "firma_proponente", "votos")
 CAMPOS_GENESIS = CAMPOS_COMUNES + ("cuentas", "parametros")
 
@@ -60,8 +63,9 @@ def nueva_transaccion(emisor: str, receptor: str, monto: int, timestamp: float, 
 
 # ---------------------------------------------------------------- bloques
 def hash_bloque(b) -> str:
-    """SHA-256 de todos los campos del bloque en forma canónica; el campo "hash" nunca entra en su propio cálculo."""
-    datos = {k: v for k, v in b.items() if k != "hash"}
+    """SHA-256 del encabezado en forma canónica. No entran el propio "hash", la firma del minero (se firma el hash)
+    ni las transacciones (quedan comprometidas por raiz_merkle)."""
+    datos = {k: v for k, v in b.items() if k not in EXCLUIDOS_HASH}
     return hashlib.sha256(json.dumps(datos, sort_keys=True).encode()).hexdigest()
 
 
@@ -71,7 +75,7 @@ _MARCA_NONCE = "__NONCE__"
 def preparar_hasher(bloque):
     """Devuelve f(nonce) -> hash idéntico a hash_bloque(bloque con ese nonce), pero precalculando todo
     lo que no cambia entre intentos (el JSON se parte alrededor del nonce)."""
-    datos = {k: v for k, v in bloque.items() if k != "hash"}
+    datos = {k: v for k, v in bloque.items() if k not in EXCLUIDOS_HASH}
     datos["nonce"] = _MARCA_NONCE
     texto = json.dumps(datos, sort_keys=True)
     partes = texto.split(json.dumps(_MARCA_NONCE))
@@ -94,6 +98,7 @@ def crear_genesis(cuentas: dict, parametros: dict, timestamp: float) -> dict:
         "timestamp": timestamp,
         "transacciones": [],
         "hash_anterior": HASH_CERO,
+        "raiz_merkle": merkle.raiz_transacciones([]),
         "nonce": 0,
         "proponente": "génesis",
         "recompensa": 0,
@@ -121,6 +126,14 @@ def revisar_campos(b, campos: tuple) -> None:
         raise ErrorValidacion("transacciones o proponente con tipo inválido")
     if not es_entero(b["recompensa"]) or b["recompensa"] < 0:
         raise ErrorValidacion("recompensa con tipo inválido")
+    if not es_hex(b["raiz_merkle"], 64):
+        raise ErrorValidacion("raiz_merkle con formato inválido")
+    try:
+        raiz = merkle.raiz_transacciones(b["transacciones"])
+    except (TypeError, ValueError):
+        raise ErrorValidacion("las transacciones no se pueden serializar") from None
+    if raiz != b["raiz_merkle"]:
+        raise ErrorValidacion("la raíz de Merkle no coincide con las transacciones")
 
 
 # ---------------------------------------------------------------- estado de cuentas
@@ -133,6 +146,7 @@ class Estado:
         self.params = dict(genesis["parametros"])
         self.recompensas = []   # recompensas aún sin madurar: {"numero", "nodo", "monto"}
         self.tx_ids = set()     # transacciones ya incluidas (evita repetirlas: doble gasto entre bloques)
+        self.sellos = {}        # doc_hash -> sellos en orden de cadena (el primero tiene la prioridad)
         self.altura = 0
         self.ultimo_hash = genesis["hash"]
         self.ultimo_ts = genesis["timestamp"]
@@ -142,6 +156,7 @@ class Estado:
         nuevo.saldos = dict(self.saldos)
         nuevo.recompensas = list(self.recompensas)
         nuevo.tx_ids = set(self.tx_ids)
+        nuevo.sellos = {k: list(v) for k, v in self.sellos.items()}
         return nuevo
 
     def madurar(self) -> list:
@@ -184,10 +199,20 @@ def revisar_transaccion(estado: Estado, tx, vistos: set | None = None) -> str:
     return tid
 
 
-def aplicar_transacciones(estado: Estado, transacciones: list) -> None:
-    """Valida y aplica en orden. Detecta el doble gasto dentro del mismo bloque."""
+def aplicar_transacciones(estado: Estado, transacciones: list, numero: int | None = None) -> None:
+    """Valida y aplica en orden. Detecta el doble gasto dentro del mismo bloque.
+    Los sellos multifirma (tipo "sello") no mueven saldos; se registran en estado.sellos con el número del bloque."""
+    from models.multifirma import es_sello, registrar_sello, revisar_sello
     vistos, gastado = set(), {}
     for i, tx in enumerate(transacciones, 1):
+        if es_sello(tx):
+            try:
+                tid = revisar_sello(estado, tx, vistos)
+            except ErrorValidacion as exc:
+                raise ErrorValidacion(f"transacción {i}: {exc}") from None
+            registrar_sello(estado, tx, tid, numero, i - 1)
+            vistos.add(tid)
+            continue
         try:
             tid = revisar_transaccion(estado, tx, vistos)
         except ErrorValidacion as exc:

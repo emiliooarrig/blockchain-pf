@@ -1,7 +1,7 @@
 """Rutas JSON. Sólo reciben la petición, validan las entradas y llaman al núcleo (models/)."""
 from flask import Blueprint, current_app, jsonify, render_template, request
 
-from controllers.entradas import booleano, datos, entero, opcion, texto
+from controllers.entradas import booleano, contrasena, datos, entero, opcion, texto
 from models import ataques
 from models.bloque import MONTO_MAX
 from models.errores import ErrorEntrada
@@ -79,7 +79,7 @@ def reiniciar(version):
                              defecto=50 if version == "pow" else 10),
         "reproducible": booleano(d, "reproducible", "Modo reproducible", defecto=False),
     }
-    red = _sim().reiniciar(version, **parametros)
+    red = _sim().reiniciar(version, contrasena=contrasena(d, "contrasena", "La contraseña"), **parametros)
     return _ok(f"Simulación reiniciada con {parametros['n']} nodos.", revision=red.revision)
 
 
