@@ -68,3 +68,44 @@ def test_aud_001_sondas_calladas_no_vetan_el_loopback(claves, servidores):
     assert not sa.vetado("127.0.0.1")
     sb = servidores(NodoFalso("LAB-B", claves, genesis=a.genesis))
     assert sb.conectar("127.0.0.1", sa.puerto) == "LAB-A"
+
+
+# ---------------------------------------------------------------- AUD-008
+def firma_auth(nodo, reto_iniciador, reto_respondedor, firmante, destinatario):
+    """Firma de saludo ligada al canal (AUD-008): dominio, génesis, ambos retos y los dos extremos."""
+    return nodo.firmar(f"sellalo-p2p|{nodo.hash_genesis}|{reto_iniciador}|{reto_respondedor}|{firmante}|"
+                       f"{destinatario}".encode("utf-8"))
+
+
+def test_aud_008_firma_de_un_canal_no_sirve_en_otro(claves, servidores):
+    a, b = NodoFalso("LAB-A", claves), NodoFalso("LAB-B", claves)
+    sa, sb = servidores(a), servidores(b)
+    # M dice ser LAB-A ante B y recibe el reto de B ...
+    m_b = Crudo(sb.puerto)
+    m_b.enviar(hello_de(b, "LAB-A", reto="11" * 16))
+    ack_b = m_b.leer()
+    assert ack_b["tipo"] == "HELLO_ACK"
+    # ... se lo planta como reto propio a LAB-A (que firma "el reto del que llama") y reenvía esa firma a B
+    m_a = Crudo(sa.puerto)
+    m_a.enviar(hello_de(a, "LAB-B", reto=ack_b["reto"]))
+    ack_a = m_a.leer()
+    assert ack_a["tipo"] == "HELLO_ACK"
+    m_b.enviar({"tipo": "AUTH", "firma_reto": ack_a["firma_reto"]})
+    time.sleep(0.5)
+    assert "LAB-A" not in ids_de(sb)          # M no puede quedar registrado como LAB-A
+    m_a.cerrar()
+    m_b.cerrar()
+
+
+def test_aud_008_saludo_legitimo_con_firma_ligada(claves, servidores):
+    a = NodoFalso("LAB-A", claves)
+    sa = servidores(a)
+    k = Crudo(sa.puerto)
+    reto = "cd" * 16
+    k.enviar(hello_de(a, "LAB-B", reto=reto))
+    ack = k.leer()
+    b = NodoFalso("LAB-B", claves, genesis=a.genesis)
+    assert ack["tipo"] == "HELLO_ACK"
+    k.enviar({"tipo": "AUTH", "firma_reto": firma_auth(b, reto, ack["reto"], "LAB-B", "LAB-A")})
+    assert esperar(lambda: ids_de(sa) == {"LAB-B"})
+    k.cerrar()

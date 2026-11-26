@@ -97,7 +97,7 @@ class Crudo:
         ack = self.leer()
         if ack is None or ack["tipo"] != "HELLO_ACK":
             return ack
-        datos = f"{ack['reto']}|{nodo.id}".encode()
+        datos = (f"sellalo-p2p|{nodo.hash_genesis}|{reto}|{ack['reto']}|{nodo.id}|{ack['nodo']}").encode()   # AUD-008
         firma = nodo.firmar(b"otra cosa" if firma_mala else datos)
         self.enviar({"tipo": "AUTH", "firma_reto": firma})
         return ack

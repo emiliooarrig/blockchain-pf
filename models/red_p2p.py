@@ -321,8 +321,14 @@ class ServidorP2P:
                 "altura": r["altura"], "trabajo": r["trabajo"], "punta": r["punta"], "reto": reto,
                 "puerto": self.puerto}
 
-    def _firma_reto(self, reto: str) -> str:
-        return self.nodo.firmar(f"{reto}|{self.nodo.id}".encode("utf-8"))
+    def _datos_saludo(self, reto_iniciador: str, reto_respondedor: str, firmante: str, destinatario: str) -> bytes:
+        """Mensaje que se firma en el saludo. Liga la firma a la red, a los dos retos y a los dos extremos, de modo que
+        no sirve en otro canal (un tercero no puede pedirle a un nodo que firme por él ni reenviar la firma)."""
+        return (f"sellalo-p2p|{self.nodo.hash_genesis}|{reto_iniciador}|{reto_respondedor}|{firmante}|"
+                f"{destinatario}").encode("utf-8")
+
+    def _firma_saludo(self, reto_iniciador: str, reto_respondedor: str, destinatario: str) -> str:
+        return self.nodo.firmar(self._datos_saludo(reto_iniciador, reto_respondedor, self.nodo.id, destinatario))
 
     def _validar_datos_hello(self, msg: dict) -> tuple[str, bool] | None:
         """Valida forma y reglas del HELLO/HELLO_ACK ajeno. Devuelve (motivo, es_falta) o None si es válido."""
@@ -423,7 +429,7 @@ class ServidorP2P:
         reto_propio = os.urandom(16).hex()
         try:
             ack = self._hello("HELLO_ACK", reto_propio)
-            ack["firma_reto"] = self._firma_reto(msg["reto"])
+            ack["firma_reto"] = self._firma_saludo(msg["reto"], reto_propio, par.id)
         except Exception as exc:
             self._rechazar(par, f"no puedo firmar: {exc}")
             return False
@@ -433,7 +439,7 @@ class ServidorP2P:
         if auth is None:
             return False
         pub = self.nodo.clave_publica_de(par.id)
-        if not verificar(pub, f"{reto_propio}|{par.id}".encode("utf-8"), auth.get("firma_reto")):
+        if not verificar(pub, self._datos_saludo(msg["reto"], reto_propio, par.id, self.nodo.id), auth.get("firma_reto")):
             self._sumar_falta(par.ip, "firma de reto inválida")
             self._rechazar(par, "firma del reto inválida")
             return False
@@ -483,11 +489,11 @@ class ServidorP2P:
                 raise ErrorEstado(f"Saludo rechazado: {problema[0]}.")
             par.id = msg["nodo"]
             pub = self.nodo.clave_publica_de(par.id)
-            if not verificar(pub, f"{reto}|{par.id}".encode("utf-8"), msg.get("firma_reto")):
+            if not verificar(pub, self._datos_saludo(reto, msg["reto"], par.id, self.nodo.id), msg.get("firma_reto")):
                 self._sumar_falta(par.ip, "firma de reto inválida")
                 self._rechazar(par, "firma del reto inválida")
                 raise ErrorEstado("El par no pudo probar su identidad (firma del reto inválida).")
-            auth = {"tipo": "AUTH", "firma_reto": self._firma_reto(msg["reto"])}
+            auth = {"tipo": "AUTH", "firma_reto": self._firma_saludo(reto, msg["reto"], par.id)}
             motivo = self._registrar(par, msg, puerto)
             if motivo:
                 self._rechazar(par, motivo)
