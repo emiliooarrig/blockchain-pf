@@ -117,3 +117,32 @@ def test_aud_033_cabeceras_de_seguridad(sim, ruta):
 def test_aud_033_cabeceras_en_modo_nodo(nodo):
     assert "frame-ancestors 'none'" in nodo.get("/").headers["Content-Security-Policy"]
     assert nodo.post("/api/sellalo/bloquear", json={}).headers["X-Frame-Options"] == "DENY"
+
+
+# ---------------------------------------------------------------- AUD-034
+def _verificar(c, contenido: bytes, nombre="certificado"):
+    import io
+    return c.post("/api/sellalo/certificado/verificar", data={nombre: (io.BytesIO(contenido), "c.json")},
+                  content_type="multipart/form-data")
+
+
+def test_aud_034_rutas_sin_subida_tienen_limite_pequeno(nodo):
+    r = nodo.post("/api/sellalo/minar", data=b"x" * (2 * 1024 * 1024), content_type="text/plain")
+    assert r.status_code == 413 and r.get_json()["ok"] is False
+
+
+def test_aud_034_certificado_con_demasiados_encabezados(nodo, monkeypatch):
+    import json
+    import controllers.sellalo as modulo
+
+    def no_debe_llamarse(*a, **k):
+        raise AssertionError("no se debe verificar un certificado con encabezados de más")
+    monkeypatch.setattr(modulo, "verificar", no_debe_llamarse)
+    cert = {"genesis": {}, "encabezados": [{}] * (modulo.MAX_ENCABEZADOS + 1), "sello": {}}
+    r = _verificar(nodo, json.dumps(cert).encode())
+    assert r.status_code == 400 and "encabezados" in r.get_json()["error"]
+
+
+def test_aud_034_certificado_demasiado_grande(nodo):
+    r = _verificar(nodo, b" " * (17 * 1024 * 1024))
+    assert r.status_code in (400, 413) and "grande" in r.get_json()["error"]

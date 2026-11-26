@@ -33,6 +33,10 @@ paginas_nodo = Blueprint("paginas_nodo", __name__)
 MENSAJE_SIMULADOR = "Este proceso no es un nodo Sellalo; arráncalo con --modo nodo."
 TITULO_MAX, INVESTIGADOR_MAX = 120, 80
 BLOQUE_LECTURA = 1 << 20
+MAX_CERTIFICADO = 16 * 1024 * 1024        # certificado subido a verificar (≈ 23 000 bloques de encabezados)
+MAX_ENCABEZADOS = 100_000
+MAX_CUERPO_SIN_SUBIDA = 1024 * 1024       # rutas que no reciben documentos ni certificados
+RUTAS_CON_SUBIDA = ("/api/sellalo/sellos", "/api/sellalo/prioridad", "/api/sellalo/certificado/verificar")
 RE_HOST = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
 
 
@@ -100,6 +104,13 @@ def _ctx() -> ContextoNodo:
 def _solo_nodo():
     if current_app.config.get("CONTEXTO_NODO") is None:
         raise ErrorEstado(MENSAJE_SIMULADOR)
+
+
+@sellalo.before_request
+def _limite_de_cuerpo():
+    """AUD-034: sólo las rutas que suben documentos/certificados aceptan cuerpos grandes."""
+    if request.path not in RUTAS_CON_SUBIDA:
+        request.max_content_length = MAX_CUERPO_SIN_SUBIDA
 
 
 def _ok(mensaje: str | None = None, **extra):
@@ -406,7 +417,10 @@ def _leer_subida(nombre: str, obligatorio: bool, etiqueta: str) -> bytes | None:
         if obligatorio:
             raise ErrorEntrada(f"Falta {etiqueta} (campo multipart «{nombre}»).")
         return None
-    contenido = archivo.stream.read()
+    maximo = MAX_CERTIFICADO if nombre == "certificado" else None
+    contenido = archivo.stream.read(maximo + 1) if maximo else archivo.stream.read()
+    if maximo and len(contenido) > maximo:
+        raise ErrorEntrada(f"El certificado es demasiado grande (máximo {maximo // (1024 * 1024)} MiB).")
     if not contenido:
         raise ErrorEntrada(f"{etiqueta[0].upper() + etiqueta[1:]} está vacío.")
     return contenido
@@ -422,6 +436,9 @@ def verificar_certificado_ruta():
         raise ErrorEntrada("El certificado no es un JSON válido.") from None
     if not isinstance(cert, dict):
         raise ErrorEntrada("El certificado debe ser un objeto JSON.")
+    encabezados = cert.get("encabezados")
+    if isinstance(encabezados, list) and len(encabezados) > MAX_ENCABEZADOS:
+        raise ErrorEntrada(f"El certificado tiene demasiados encabezados (máximo {MAX_ENCABEZADOS:,}).")
     resultado = verificar(cert, documento)
     try:
         resumen = resumen_certificado(cert)
