@@ -43,17 +43,18 @@ class CoordinadorSellos:
                 datos = json.load(f)
         except FileNotFoundError:
             return
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError):
             self.nodo.evento("sellos", "No se pudo leer sellos_en_firma.json; se empieza sin sellos en firma.")
             return
         if not isinstance(datos, dict):
+            self.nodo.evento("sellos", "sellos_en_firma.json no tiene el formato esperado; se empieza sin sellos en firma.")
             return
         for sid, entrada in datos.items():
             try:
                 sello = self._normalizar(entrada["sello"])
                 if id_sello(sello) == sid:
                     self._en_firma[sid] = {"sello": sello, "creado": float(entrada["creado"])}
-            except (ErrorEntrada, KeyError, TypeError, ValueError):
+            except (ErrorEntrada, KeyError, TypeError, ValueError, OverflowError, RecursionError):
                 continue
 
     def _guardar(self) -> None:

@@ -7,3 +7,5 @@ data/
 .claude/
 skills-lock.json
 guia_simulador_blockchain.pdf
+clave.json
+*.key

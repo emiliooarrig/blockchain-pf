@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+DIF_MIN, DIF_MAX = 1, 6      # mismas cotas que exige el nodo (models/pow.py): sin dificultad 0 ni cadenas de ceros gigantes
 EXCLUIDOS_HASH = ("hash", "transacciones", "firma_minero")
 CAMPOS_FIRMADOS = ("tipo", "doc_hash", "titulo", "investigador", "laboratorio", "autores", "umbral", "timestamp")
 HEX = set("0123456789abcdef")
@@ -77,7 +78,7 @@ def _verificar(cert, documento, genesis_esperado) -> dict:
         return _fallo("el certificado no es un objeto JSON")
     if cert.get("formato") != "sellalo-certificado":
         return _fallo("formato desconocido: no es un certificado de Sellalo")
-    if cert.get("version") != 1:
+    if type(cert.get("version")) is not int or cert["version"] != 1:     # True == 1 en Python: se exige un entero
         return _fallo(f"versión de certificado no soportada: {cert.get('version')!r}")
     genesis, encabezados = cert.get("genesis"), cert.get("encabezados")
     sello, prueba = cert.get("sello"), cert.get("prueba_merkle")
@@ -122,7 +123,7 @@ def _verificar(cert, documento, genesis_esperado) -> dict:
         if num != previo_num + 1:
             return _fallo(f"la numeración de los bloques no es consecutiva en el bloque {num}")
         dif = h.get("dificultad")
-        if type(dif) is not int or dif < 0 or not h["hash"].startswith("0" * dif):
+        if type(dif) is not int or not DIF_MIN <= dif <= DIF_MAX or not h["hash"].startswith("0" * dif):
             return _fallo(f"el bloque {num} no cumple la prueba de trabajo")
         clave = _clave_de(genesis, h.get("proponente"))
         if clave is None:

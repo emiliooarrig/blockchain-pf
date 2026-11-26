@@ -393,7 +393,7 @@ def verificar_certificado_ruta():
     documento = _leer_subida("documento", False, "el documento")
     try:
         cert = json.loads(crudo.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError):
+    except (UnicodeDecodeError, ValueError, RecursionError):
         raise ErrorEntrada("El certificado no es un JSON válido.") from None
     if not isinstance(cert, dict):
         raise ErrorEntrada("El certificado debe ser un objeto JSON.")

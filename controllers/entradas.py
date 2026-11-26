@@ -16,7 +16,10 @@ FALSO = {"false", "0", "no", "off", "en_contra", "contra"}
 
 def datos() -> dict:
     if request.is_json:
-        cuerpo = request.get_json(silent=True)
+        try:
+            cuerpo = request.get_json(silent=True)
+        except RecursionError:          # JSON anidado en exceso
+            cuerpo = None
         if cuerpo is None:
             raise ErrorEntrada("El cuerpo de la petición no es JSON válido.")
     elif request.form:
