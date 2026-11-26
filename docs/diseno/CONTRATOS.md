@@ -147,8 +147,16 @@ class NodoCompleto:
     lock: threading.RLock
     desbloqueado -> bool ; desbloquear(contrasena) ; bloquear()
     agregar_transaccion(tx, origen="") -> str            # valida (transferencia o sello completo) y la pone en pendientes
-    recibir_bloque(bloque, de="") -> tuple[bool, str]    # extiende la punta o pide sincronizar
+    recibir_bloque(bloque, de="") -> tuple[str, str]     # ("aceptado"|"duplicado"|"sincronizar"|"rechazado", motivo)
+                                                         #  "sincronizar" = no enlaza con mi punta pero es más alto: pedir la cadena
     recibir_cadena(cadena, de="") -> tuple[bool, str]    # valida completa; adopta si tiene MÁS TRABAJO
+    # --- interfaz que usa ServidorP2P (A2 la implementa con un nodo falso en sus pruebas) ---
+    hash_genesis -> str
+    clave_publica_de(nodo_id) -> str | None              # desde las cuentas del génesis
+    firmar(datos: bytes) -> str                          # ErrorEstado si el nodo está bloqueado
+    resumen() -> {"altura", "trabajo", "punta"}
+    bloques_desde(numero: int, maximo: int = 100) -> list[dict]
+    evento(tipo, texto)                                  # escribe en la bitácora
     iniciar_minado(dificultad: int) / detener_minado() / minando -> bool
     al_cambiar: list[callable]                            # callbacks (p. ej. difundir bloque nuevo)
     publico() -> dict                                     # para la UI; nunca incluye la clave privada
@@ -160,6 +168,10 @@ def trabajo(cadena) -> int                               # sum(16 ** b["dificult
 - Persistencia en `dir_datos`: `cadena.json`, `pendientes.json` (escritura atómica con `os.replace`). Al arrancar revalida la
   cadena completa; si es inválida la renombra a `cadena.json.corrupto-<ts>` y empieza desde el génesis.
 - Minado real en un hilo cancelable (`threading.Event`); requiere nodo desbloqueado (firma `firma_minero`).
+- Un nodo **bloqueado** puede cargar, revalidar y mostrar su copia, pero **no puede unirse a la red** (el saludo va firmado),
+  ni minar, ni firmar sellos. `ServidorP2P.iniciar()` / `conectar()` lanzan `ErrorEstado` si el nodo está bloqueado.
+- Sincronización: al saludar, si el par anuncia más trabajo se piden `GET_BLOQUES desde=1` por páginas, se arma
+  `[genesis] + bloques` y se llama `recibir_cadena`. Si `recibir_bloque` responde `"sincronizar"`, se hace lo mismo.
 - La recompensa y las 6 confirmaciones usan `Estado` como en el simulador.
 
 `models/red_p2p.py` — JSON por línea sobre TCP, máximo 1 MiB por línea, tiempo límite de lectura:
