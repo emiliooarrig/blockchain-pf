@@ -408,23 +408,16 @@ class NodoCompleto:
                 self._adoptar_bloque(bloque, estado)
                 self.evento("bloque", f"Bloque #{numero} aceptado{origen} (proponente {bloque['proponente']}).")
                 eventos.append(("bloque_recibido", bloque))
-            elif numero < self.altura or (numero == self.altura and bloque["hash"] > self.punta):
-                return "duplicado", "rama alterna de menor altura o de igual altura y hash mayor"
-            elif numero == self.altura:
-                # misma altura y hash menor: puede ganar el desempate; se pide la cadena (la decide recibir_cadena)
-                try:
-                    self._chequeo_ligero(bloque)
-                except ErrorValidacion as exc:
-                    self.evento("rechazo", f"Bloque #{numero}{origen} rechazado: {exc}.")
-                    return "rechazado", str(exc)
-                return "sincronizar", "rama alterna con hash menor: hay que comparar cadenas"
             else:
+                # No está en mi cadena ni la extiende. Aunque su altura sea menor o igual que la mía puede pertenecer
+                # a una rama con más trabajo (dificultad mayor): si el bloque es válido en formato y PoW se pide la
+                # cadena y `recibir_cadena` decide por trabajo acumulado, no por altura.
                 try:
                     self._chequeo_ligero(bloque)
                 except ErrorValidacion as exc:
                     self.evento("rechazo", f"Bloque #{numero}{origen} rechazado: {exc}.")
                     return "rechazado", str(exc)
-                return "sincronizar", "no enlaza con mi punta: hay que pedir la cadena"
+                return "sincronizar", "no enlaza con mi punta: hay que comparar cadenas"
         self._emitir(eventos)
         return "aceptado", "ok"
 

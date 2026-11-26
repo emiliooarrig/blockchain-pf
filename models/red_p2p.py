@@ -542,6 +542,7 @@ class ServidorP2P:
         return msg
 
     def _tras_saludo(self, par: _Par) -> None:
+        """Tras el saludo y tras cada PING/PONG: si el par anuncia más trabajo que el mío, se sincroniza."""
         if par.trabajo > self.nodo.resumen()["trabajo"]:
             self._iniciar_sync(par)
 
@@ -615,8 +616,10 @@ class ServidorP2P:
         if tipo == "PING":
             self._actualizar_resumen(par, msg)
             self._enviar(par, {"tipo": "PONG", "t": msg.get("t"), **self._resumen_seguro()})
+            self._tras_saludo(par)
         elif tipo == "PONG":
             self._actualizar_resumen(par, msg)
+            self._tras_saludo(par)
             t = msg.get("t")
             if isinstance(t, (int, float)) and not isinstance(t, bool) and math.isfinite(t):
                 # acotada: un par no puede meter Infinity/NaN en el JSON de /estado con una marca de tiempo absurda

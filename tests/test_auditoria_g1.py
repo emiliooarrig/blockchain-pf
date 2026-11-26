@@ -250,3 +250,25 @@ def test_aud_011_bloque_ya_en_cadena_y_futuro_son_benignos(nodo, labs):
     futuro["hash"] = hash_bloque(futuro)
     estado, motivo = nodo.recibir_bloque(futuro)
     assert estado == "rechazado" and getattr(motivo, "benigno", False)
+
+
+# ---------------------------------------------------------------- AUD-002
+def test_aud_002_bloque_de_rama_con_mas_trabajo_pide_sincronizar(nodo, labs):
+    propia = lab.rama(labs, [[transferencia(labs, "LAB-A", "LAB-C", 1, hace() + i)] for i in range(3)], dificultad=1)
+    for b in propia[1:]:
+        assert nodo.recibir_bloque(b)[0] == "aceptado"
+    assert nodo.altura == 3
+    ajena = lab.bloque_externo(labs, labs[0], [transferencia(labs, "LAB-B", "LAB-C", 2, hace())], dificultad=3)
+    # su altura (1) es menor que la mía (3) pero su trabajo (16**3) supera al de mis tres bloques (3 * 16)
+    estado, _ = nodo.recibir_bloque(ajena)
+    assert estado == "sincronizar"
+
+
+def test_aud_002_resumen_con_mas_trabajo_dispara_sincronizacion(claves, servidores):
+    a, b = NodoFalso("LAB-A", claves), NodoFalso("LAB-B", claves, genesis=NodoFalso("LAB-A", claves).genesis)
+    b.genesis = a.genesis
+    b.hash_genesis, b.cadena = a.hash_genesis, [a.genesis]
+    sa, sb = servidores(a), servidores(b)
+    assert sb.conectar("127.0.0.1", sa.puerto) == "LAB-A"
+    b.extender(4)                              # b avanza después del saludo; sólo se entera de ello por PING/PONG
+    assert esperar(lambda: a.cadena == b.cadena)
