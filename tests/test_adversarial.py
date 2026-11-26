@@ -62,7 +62,7 @@ def labs_otra_red(tmp_path_factory):
 def crear_app(labs, carpeta, nodo_id="LAB-A"):
     genesis, rutas, _, ruta_genesis = labs
     app = create_app_nodo(str(carpeta), ruta_genesis, nodo_id, puerto_p2p=0, ruta_clave=rutas[nodo_id],
-                          host_p2p="127.0.0.1", opciones_p2p=OPCIONES)
+                          host_p2p="127.0.0.1", opciones_p2p=OPCIONES, laboratorio_ataques=True)
     app.config["TESTING"] = True
     return app
 
