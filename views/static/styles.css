@@ -449,3 +449,8 @@ fieldset.autores legend { padding: 0 6px; font-size: .82rem; font-weight: 600; }
 .ev-ataque { border-left-color: var(--bad); }
 @media (max-width: 560px) { .topbar h1 { font-size: 1.3rem; } .card { padding: 16px; } }
 .form-grid .form-nota { grid-column: 1 / -1; margin: -6px 0 0; }
+
+/* Tabla de pares: ids sin partir y la columna de acciones siempre visible en pantallas anchas */
+#seccion-red .table td:first-child { white-space: nowrap; font-weight: 600; }
+#seccion-red .table td:last-child { white-space: nowrap; }
+@media (min-width: 900px) { #seccion-red .grid-2 { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); } }

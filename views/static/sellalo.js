@@ -274,7 +274,9 @@
         h("summary", {},
           h("strong", {}, `#${b.numero}`), h("span", { class: "small muted" }, fecha(b.timestamp)),
           h("span", { class: "small" }, `Minero ${b.proponente || "–"} · dif. ${b.dificultad ?? "–"} · ${b.transacciones} tx`),
-          h("span", { class: `chip ${b.confirmaciones >= req ? "chip-ok" : "chip-warn"}` }, `${Math.min(b.confirmaciones, req)}/${req} conf.`),
+          b.numero === 0
+            ? h("span", { class: "chip" }, "génesis")
+            : h("span", { class: `chip ${b.confirmaciones >= req ? "chip-ok" : "chip-warn"}` }, `${Math.min(b.confirmaciones, req)}/${req} conf.`),
           hashCeros(b.hash)),
         detalle);
       if (ui.abiertos.has(b.numero)) det.open = true;
