@@ -204,6 +204,21 @@ class ServidorP2P:
     pares_publico() -> list[dict]                        # id, dirección, altura, punta, trabajo, latencia, estado
 ```
 
+### C5.1 · Lo que `ServidorP2P` (ya implementado) exige del nodo
+
+- `resumen()` → `altura` y `trabajo` enteros ≥ 0, `punta` str.
+- `bloques_desde(n, max)`: `n ≥ 1` es número de bloque; el génesis nunca se envía.
+- `recibir_bloque` es thread-safe y rápido; **`"rechazado"` suma una falta al par**, así que bloques viejos o ya
+  conocidos devuelven `"duplicado"`, nunca `"rechazado"`.
+- `agregar_transaccion` lanza `ErrorEntrada`/`ErrorEstado` ante una tx inválida (cuenta como falta).
+- Deduplicación: bloques por `hash`; transacciones por `tx["id"]` si existe o por el hash del JSON canónico.
+- `clave_publica_de` devuelve `None` si el id no existe; `firmar` lanza `ErrorEstado` con el nodo bloqueado.
+- El nodo (o su envoltura) llama `servidor.difundir("BLOQUE", {"bloque": b})` / `("TX", {"tx": tx})` para lo creado localmente.
+- Al bloquear el nodo se debe llamar `servidor.detener()`; para reiniciar se crea otro `ServidorP2P`.
+- Constructor real: `ServidorP2P(nodo, host, puerto, *, intervalo_ping=3, tiempo_sin_respuesta=12, tiempo_saludo=5,
+  tiempo_sync=10, segundos_veto=60, max_vistos=10000)`; con `puerto=0` el puerto asignado queda en `.puerto`.
+  `pares_publico()` agrega `saliente`; `estado` es `"conectado"` o `"sincronizando"`.
+
 ## C6 · Certificado (`models/certificado.py` + `verificar_certificado.py`, A3)
 
 ```json
