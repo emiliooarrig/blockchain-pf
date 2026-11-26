@@ -849,7 +849,7 @@ def test_certificado_con_10000_encabezados_validos_no_se_cuelga(labs, certificad
     cert = copy.deepcopy(certificado)
     cert["encabezados"] = cadena_larga_de_encabezados(certificado, labs[2], 10_000)
     t0 = time.monotonic()
-    r = verificar(cert, DOC)
+    r = verificar(cert, DOC, certificado["genesis"]["hash"])
     assert r["valido"] and r["detalle"]["confirmaciones"] == 9_999
     assert time.monotonic() - t0 < 30
     cert["encabezados"][-1]["firma_minero"] = "0" * 128           # un solo encabezado falso al final

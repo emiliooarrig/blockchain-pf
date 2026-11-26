@@ -375,7 +375,7 @@ class Guion:
         with open(self.ruta_doc, "wb") as f:
             f.write(self.documento)
         self.say(f"  Certificado descargado de {self.c.id}: {os.path.basename(self.ruta_cert)} ({len(crudo)} bytes)")
-        codigo, texto = self.verificador(self.ruta_cert, self.ruta_doc)
+        codigo, texto = self.verificador(self.ruta_cert, self.ruta_doc, self.c.nodo()["hash_genesis"])
         self.exigir(codigo == 0 and "CERTIFICADO VÁLIDO" in texto, f"el verificador rechazó el certificado: {texto}")
         self.ev["verificador_valido"] = texto
         for linea in texto.strip().splitlines():
@@ -383,11 +383,16 @@ class Guion:
         self.say(f"  verificar_certificado.py terminó con código {codigo} (certificado válido, documento coincide)")
         r = self.b.c.subir("/api/sellalo/certificado/verificar", {},
                            {"certificado": ("c.json", crudo), "documento": ("resultado.pdf", self.documento)})[1]
-        self.exigir(r["valido"] and r["misma_red"], f"la verificación vía API falló: {r}")
+        # La validez final la decide el endpoint con el génesis del nodo (AUD-005); aquí se exige coherencia y misma red.
+        self.exigir(r["misma_red"] and (r.get("detalle") or {}).get("doc_hash") == self.doc_hash,
+                    f"la verificación vía API falló: {r}")
         self.say(f"  La API de {self.b.id} también lo valida (misma_red={r['misma_red']}).")
 
-    def verificador(self, cert: str, documento: str | None) -> tuple[int, str]:
+    def verificador(self, cert: str, documento: str | None, genesis: str | None = None) -> tuple[int, str]:
+        """`genesis`: hash del génesis de la red; sin él el verificador no concluye (AUD-005, código 3)."""
         cmd = [sys.executable, "verificar_certificado.py", cert]
+        if genesis:
+            cmd += ["--genesis", genesis]
         if documento:
             cmd += ["--documento", documento]
         p = subprocess.run(cmd, cwd=RAIZ, capture_output=True, timeout=60)

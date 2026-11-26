@@ -59,3 +59,35 @@ def test_aud_004_verificador_independiente_exige_la_dificultad_del_genesis(clave
     b1 = minar_bloque(g, [crear_sello(sha(DOC_A), claves, ["LAB-A", "LAB-B"])], claves, "LAB-A", dificultad=2)
     cert = generar_certificado([g, b1], sha(DOC_A), emitido=T0 + 100)
     assert vc.verificar(cert, DOC_A, g["hash"])["valido"]
+
+
+# ---------------------------------------------------------------- AUD-005
+def _cert_basico(claves):
+    g = genesis_con(claves, dificultad=1)
+    b1 = minar_bloque(g, [crear_sello(sha(DOC_A), claves, ["LAB-A", "LAB-B"])], claves, "LAB-A", dificultad=1)
+    return generar_certificado([g, b1], sha(DOC_A), emitido=T0 + 100), g
+
+
+def test_aud_005_sin_genesis_esperado_no_es_valido(claves):
+    cert, g = _cert_basico(claves)
+    r = vc.verificar(cert, DOC_A)
+    assert r["valido"] is False and r["genesis_confirmado"] is False
+    assert r["concluyente"] is False and "no concluyente" in r["motivo"].lower()
+
+
+def test_aud_005_con_genesis_esperado_es_valido_y_confirmado(claves):
+    cert, g = _cert_basico(claves)
+    r = vc.verificar(cert, DOC_A, g["hash"])
+    assert r["valido"] is True and r["genesis_confirmado"] is True
+    r = vc.verificar(cert, DOC_A, "ab" * 32)
+    assert r["valido"] is False and r["genesis_confirmado"] is False and r["concluyente"] is True
+
+
+def test_aud_005_cli_sin_genesis_sale_con_codigo_3(claves, tmp_path, capsys):
+    cert, g = _cert_basico(claves)
+    ruta = tmp_path / "c.json"
+    ruta.write_text(json.dumps(cert), encoding="utf-8")
+    assert vc.main([str(ruta)]) == 3
+    assert "NO CONCLUYENTE" in capsys.readouterr().out
+    assert vc.main([str(ruta), "--genesis", g["hash"]]) == 0
+    assert vc.main([str(ruta), "--genesis", "ab" * 32]) == 1

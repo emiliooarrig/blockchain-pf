@@ -32,14 +32,14 @@ def rechaza(cert, fragmento, **kw):
 
 
 def test_valido(cert):
-    r = vc.verificar(cert, DOC_A)
+    r = vc.verificar(cert, DOC_A, cert["genesis"]["hash"])
     assert r["valido"], r["motivo"]
     assert r["detalle"]["bloque"] == 2 and r["detalle"]["titulo"] == "Primer sello"
     assert r["detalle"]["documento_comprobado"]
 
 
 def test_sin_documento_valido(cert):
-    assert vc.verificar(cert)["valido"]
+    assert vc.verificar(cert, genesis_esperado=cert["genesis"]["hash"])["valido"]
 
 
 def test_documento_distinto(cert):
@@ -152,7 +152,7 @@ def test_confirmaciones_y_resumen(mundo):
 
 
 def test_certificado_serializable(cert):
-    assert vc.verificar(json.loads(json.dumps(cert)), DOC_A)["valido"]
+    assert vc.verificar(json.loads(json.dumps(cert)), DOC_A, cert["genesis"]["hash"])["valido"]
 
 
 def _cli(tmp_path, cert, *args, doc=None, texto=None):
