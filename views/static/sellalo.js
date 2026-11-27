@@ -3,57 +3,7 @@
 (() => {
   "use strict";
 
-  const API = "/api/sellalo";
-  const $ = (s) => document.querySelector(s);
-
-  // ---------------------------------------------------------------- utilidades
-  function h(tag, attrs, ...hijos) {
-    const el = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs || {})) {
-      if (v === false || v == null) continue;
-      if (k === "class") el.className = v;
-      else el.setAttribute(k, v === true ? "" : String(v));
-    }
-    for (const c of hijos.flat()) {
-      if (c == null || c === false) continue;
-      el.append(c instanceof Node ? c : document.createTextNode(String(c)));
-    }
-    return el;
-  }
-  const corto = (x, n = 10) => (typeof x === "string" && x.length > n + 1 ? `${x.slice(0, n)}…` : String(x ?? ""));
-  const fecha = (t) => (typeof t === "number" ? new Date(t * 1000).toLocaleString("es") : "–");
-  const hora = (t) => (typeof t === "number" ? new Date(t * 1000).toLocaleTimeString("es") : "");
-  const num = (n) => (typeof n === "number" ? n.toLocaleString("es") : "0");
-  const lista = (x) => (Array.isArray(x) ? x : x && typeof x === "object" ? Object.keys(x) : []);
-  const mostrar = (el, v) => { el.hidden = !v; };
-
-  // Hash con los ceros iniciales resaltados (igual que en el simulador).
-  function hashCeros(hash) {
-    const s = String(hash || "");
-    const ceros = (s.match(/^0*/) || [""])[0];
-    return h("span", { class: "mono hash-main" }, h("span", { class: "zeros" }, ceros), s.slice(ceros.length));
-  }
-
-  function toast(texto, tipo = "ok") {
-    const t = h("div", { class: `toast toast-${tipo}`, role: tipo === "error" ? "alert" : "status" }, texto);
-    $("#toasts").append(t);
-    setTimeout(() => t.classList.add("salir"), tipo === "error" ? 8000 : 4500);
-    setTimeout(() => t.remove(), tipo === "error" ? 8600 : 5100);
-  }
-
-  async function api(ruta, { metodo = "GET", json, form } = {}) {
-    const opt = { method: metodo, headers: {} };
-    if (json !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(json); }
-    if (form) opt.body = form;
-    try {
-      const r = await fetch(API + ruta, opt);
-      let data = {};
-      try { data = await r.json(); } catch { /* respuesta sin JSON */ }
-      return { ok: r.ok && data.ok !== false, status: r.status, data };
-    } catch {
-      return { ok: false, status: 0, data: { error: "No se pudo contactar con el nodo." } };
-    }
-  }
+  const { $, h, corto, fecha, hora, num, lista, mostrar, hashCeros, toast, api, marca, msgRuta, aviso, renderEncabezado: encabezadoComun } = window.Sellalo;
 
   // ---------------------------------------------------------------- estado de la interfaz
   const ui = { est: null, ocupados: new Set(), abiertos: new Set(), detalles: new Map(), hashPrio: "",
@@ -71,7 +21,7 @@
     else toast(r.data.error || `Error ${r.status}`, "error");
     if (r.ok && alExito) alExito(r.data);
     await actualizar();
-    refrescarRubrica();
+    refrescarClave();
     return r;
   }
 
@@ -85,19 +35,10 @@
   }
 
   function renderEncabezado(e) {
-    const n = e.nodo;
-    $("#enc-lab").textContent = n.id;
+    encabezadoComun(e);
     $("#enc-red").textContent = e.red.nombre;
     $("#enc-genesis").textContent = corto(e.red.hash_genesis, 12);
     $("#enc-genesis").setAttribute("title", e.red.hash_genesis);
-    const ins = $("#enc-estado");
-    ins.classList.toggle("is-open", n.desbloqueado);
-    ins.classList.toggle("is-locked", !n.desbloqueado);
-    ins.classList.remove("badge-idle");
-    $("#enc-estado-txt").textContent = n.desbloqueado ? "Desbloqueado" : "Bloqueado";
-    $("#ico-arco").setAttribute("d", n.desbloqueado ? "M8 11V7a4 4 0 0 1 7.5-2" : "M8 11V7a4 4 0 0 1 8 0v4");
-    $("#enc-altura").textContent = `altura ${n.altura} · punta ${corto(n.punta, 8)}`;
-    $("#enc-altura").setAttribute("title", n.punta);
   }
 
   function renderBanda(e, msgError) {
@@ -105,7 +46,7 @@
     if (msgError) { b.className = "sync-banner offline"; b.textContent = msgError; mostrar(b, true); return; }
     if (e && bloqueado()) {
       b.className = "sync-banner";
-      b.textContent = "El nodo está bloqueado: desbloquéalo en el paso 1 para firmar, minar y conectarte a la red.";
+      b.textContent = "El nodo está bloqueado: desbloquéalo en Identidad para firmar, minar y conectarte a la red.";
       mostrar(b, true);
     } else mostrar(b, false);
   }
@@ -328,7 +269,7 @@
   function render(e) {
     renderEncabezado(e); renderBanda(e); renderRed(e); renderFormularios(e); renderFirmas(e);
     renderMinado(e); renderCadena(e); renderCuentas(e); renderBitacora(e); renderBotones(e);
-    renderRecorrido(e); renderConsistencia(e); renderPersistencia(e); renderConsenso(e);
+    renderConsistencia(e); renderPersistencia(e); renderConsenso(e);
   }
 
   // ---------------------------------------------------------------- sondeo
@@ -347,8 +288,7 @@
   function ciclo() {
     if (!document.hidden) {
       actualizar();
-      if (tic % 3 === 0) refrescarRubrica();
-      if (tic % 20 === 0) { cargarEntrega(); }
+      if (tic % 3 === 0) refrescarClave();
       tic++;
     }
     setTimeout(ciclo, 1000);
@@ -514,31 +454,7 @@
   $("#filtro-bitacora").addEventListener("change", () => { ui.clavesBitacora = ""; if (ui.est) renderBitacora(ui.est); });
 
   // ================================================================ Rúbrica en la interfaz
-  const NS = "http://www.w3.org/2000/svg";
-  function svgIco(ok) {
-    const s = document.createElementNS(NS, "svg");
-    for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", width: "14", height: "14", fill: "none", stroke: "currentColor",
-      "stroke-width": "3", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true", focusable: "false" })) s.setAttribute(k, v);
-    const p = document.createElementNS(NS, "path");
-    p.setAttribute("d", ok === null ? "M6 12h12" : ok ? "m5 12 5 5 9-10" : "M6 6l12 12M18 6 6 18");
-    s.append(p);
-    return s;
-  }
-  // Marca de comprobación (correcto / falla / sin dato) con texto para lectores de pantalla.
-  function marca(ok, si = "Sí", no = "No") {
-    const v = ok === null || ok === undefined ? null : !!ok;
-    return h("span", { class: `marca ${v === null ? "marca-na" : v ? "marca-ok" : "marca-bad"}` }, svgIco(v), h("span", { class: "sr-only" }, v === null ? "Sin dato" : v ? si : no));
-  }
   const sinDato = (v) => v === undefined || v === null;
-
-  // Aviso discreto cuando una ruta nueva responde 404/409/sin conexión.
-  function msgRuta(r, que) {
-    if (r.status === 404) return `${que}: este nodo aún no ofrece esta información (ruta no disponible).`;
-    if (r.status === 409) return (r.data && r.data.error) || `${que}: todavía no hay datos.`;
-    if (r.status === 0) return "No se pudo contactar con el nodo.";
-    return (r.data && r.data.error) || `${que}: error ${r.status}.`;
-  }
-  const aviso = (t) => h("p", { class: "aviso", role: "status" }, t);
 
   // ---- R1 · componente común de multifirma: autores con marca si firmaron y «k de n».
   function vistaMultifirma(s, compacto) {
@@ -557,49 +473,13 @@
         autores.map((a) => h("li", {}, firmantes ? marca(firmantes.has(a), "firmó", "no ha firmado") : null, h("span", { class: "mono" }, a)))));
   }
 
-  // ---- Tablero de rúbrica
-  let rubricaEnCurso = false, claveEnCurso = false;
-  async function refrescarRubrica() {
-    if (!rubricaEnCurso) {
-      rubricaEnCurso = true;
-      try { renderRubrica(await api("/rubrica")); } finally { rubricaEnCurso = false; }
-    }
-    if (!claveEnCurso) {
-      claveEnCurso = true;
-      try { renderClave(await api("/clave")); } finally { claveEnCurso = false; }
-    }
+  // ---- R3 · panel de la clave (se consulta en cada ciclo y tras cada acción)
+  let claveEnCurso = false;
+  async function refrescarClave() {
+    if (claveEnCurso) return;
+    claveEnCurso = true;
+    try { renderClave(await api("/clave")); } finally { claveEnCurso = false; }
   }
-  const ESTADOS = { demostrado: ["chip-ok", "demostrado"], parcial: ["chip-warn", "parcial"], pendiente: ["chip-pend", "pendiente"] };
-  function renderRubrica(r) {
-    const grid = $("#rubrica-grid"), cuenta = $("#rubrica-cuenta");
-    if (!r.ok) { cuenta.textContent = "sin datos"; grid.replaceChildren(aviso(msgRuta(r, "La rúbrica"))); return; }
-    const cr = Array.isArray(r.data.criterios) ? r.data.criterios : [];
-    const n = cr.filter((c) => c.estado === "demostrado").length;
-    cuenta.textContent = `${n} de ${cr.length || 9} criterios demostrados`;
-    cuenta.className = `badge ${n === cr.length && n > 0 ? "badge-ok" : "badge-idle"}`;
-    grid.replaceChildren(...cr.map((c) => {
-      const [cls, txt] = ESTADOS[c.estado] || ESTADOS.pendiente;
-      const ev = Array.isArray(c.evidencias) ? c.evidencias : [];
-      return h("article", { class: `crit crit-${String(c.estado).replace(/[^a-z]/g, "")}`, "aria-label": `${c.id} ${c.nombre}` },
-        h("header", {}, h("span", { class: "crit-id" }, c.id === "EX" ? "★" : c.id), h("h3", {}, c.nombre),
-          h("span", { class: "small muted" }, `${c.puntos ?? "–"} pt`)),
-        h("span", { class: `chip ${cls}` }, txt),
-        h("ul", { class: "evidencias" }, ev.map((x) => h("li", {}, marca(x.ok, "cumplido", "no cumplido"), h("span", {}, x.texto)))),
-        c.seccion ? h("a", { class: "btn btn-ghost btn-small", href: `#${c.seccion}`, "aria-label": `Ver la sección de ${c.id}` }, "Ver") : null);
-    }));
-  }
-
-  // ---- R7 · recorrido
-  function renderRecorrido(e) {
-    const ol = $("#recorrido-lista");
-    const pasos = Array.isArray(e.recorrido) ? e.recorrido : null;
-    if (!pasos) { ol.replaceChildren(h("li", { class: "muted" }, "Este nodo aún no informa el recorrido.")); return; }
-    ol.replaceChildren(...pasos.map((p, i) => h("li", { class: `paso ${p.hecho ? "paso-ok" : ""}` },
-      h("span", { class: "paso-num", "aria-hidden": "true" }, i + 1),
-      h("div", {}, h("strong", {}, p.texto, " ", p.hecho ? h("span", { class: "chip chip-ok" }, marca(true, "hecho"), "hecho") : h("span", { class: "chip chip-pend" }, "pendiente")),
-        p.detalle ? h("div", { class: "small muted" }, p.detalle) : null))));
-  }
-
   // ---- R3 · clave
   function renderClave(r) {
     const c = $("#clave-contenido");
@@ -763,7 +643,7 @@
     const btn = ev.currentTarget; btn.disabled = true;
     const r = await api("/verificacion");
     btn.disabled = false;
-    renderVerificacion(r, false); refrescarRubrica();
+    renderVerificacion(r, false); refrescarClave();
   });
   $("#form-simular").addEventListener("submit", async (ev) => {
     ev.preventDefault();
@@ -772,71 +652,32 @@
     btn.disabled = false;
     renderVerificacion(r, true);
     if (!r.ok) toast(msgRuta(r, "La simulación"), "error");
-    refrescarRubrica();
+    refrescarClave();
   });
 
-  // ---- ★ Auditoría con IA
-  const aud = { hallazgos: [] };
-  function contar(arr, campo) { const m = {}; arr.forEach((x) => { const k = x[campo] || "–"; m[k] = (m[k] || 0) + 1; }); return m; }
-  function llenarSelect(sel, valores, todos) {
-    const previo = sel.value;
-    sel.replaceChildren(h("option", { value: "" }, todos), ...[...new Set(valores)].filter(Boolean).sort().map((v) => h("option", { value: v }, v)));
-    sel.value = previo;
+  // ---------------------------------------------------------------- barra de grupos (pegajosa)
+  const enlacesGrupo = [...document.querySelectorAll(".grupos-lista a")];
+  const grupoDe = {};
+  enlacesGrupo.forEach((a) => a.dataset.secciones.split(" ").forEach((s) => { grupoDe[`seccion-${s}`] = a; }));
+  function marcarGrupo(a) {
+    enlacesGrupo.forEach((x) => { if (x === a) x.setAttribute("aria-current", "true"); else x.removeAttribute("aria-current"); });
+    const sel = $("#ir-a");
+    if (sel && a) sel.value = a.getAttribute("href").slice(1);
   }
-  function chipsConteo(titulo, mapa, claseDe) {
-    return h("div", { class: "aud-grupo" }, h("h3", { class: "subhead" }, titulo),
-      h("div", { class: "chips" }, Object.entries(mapa).map(([k, v]) => h("span", { class: `chip ${claseDe(k)}` }, `${k}: ${v}`))));
+  if ("IntersectionObserver" in window) {
+    const visibles = new Set();
+    const obs = new IntersectionObserver((entradas) => {
+      entradas.forEach((en) => { if (en.isIntersecting) visibles.add(en.target.id); else visibles.delete(en.target.id); });
+      const primera = Object.keys(grupoDe).find((id) => visibles.has(id));     // orden del documento
+      if (primera) marcarGrupo(grupoDe[primera]);
+    }, { rootMargin: "-90px 0px -55% 0px" });
+    Object.keys(grupoDe).forEach((id) => { const s = document.getElementById(id); if (s) obs.observe(s); });
   }
-  const claseEstado = (k) => (/corregido|resuelto/.test(k) ? "chip-ok" : /justificado/.test(k) ? "" : "chip-warn");
-  const claseSev = (k) => (/cr[ií]tic|alta/i.test(k) ? "chip-bad" : /media/i.test(k) ? "chip-warn" : "");
-  function pintarAuditoria() {
-    const f = { e: $("#aud-f-estado").value, s: $("#aud-f-sev").value, g: $("#aud-f-grupo").value, t: $("#aud-f-texto").value.trim().toLowerCase() };
-    const fil = aud.hallazgos.filter((x) => (!f.e || x.estado === f.e) && (!f.s || x.severidad === f.s) && (!f.g || x.grupo === f.g)
-      && (!f.t || [x.id, x.titulo, x.categoria, (x.commits || []).join(" "), x.prueba].join(" ").toLowerCase().includes(f.t)));
-    $("#aud-cuenta").textContent = `${fil.length} de ${aud.hallazgos.length} hallazgos`;
-    $("#aud-cuerpo").replaceChildren(...(fil.length ? fil.map((x) => h("tr", {},
-      h("td", { class: "mono" }, x.id), h("td", {}, x.titulo), h("td", {}, h("span", { class: `chip ${claseSev(x.severidad || "")}` }, x.severidad || "–")),
-      h("td", {}, x.decision || "–"), h("td", {}, h("span", { class: `chip ${claseEstado(x.estado || "")}` }, String(x.estado || "–").replace(/_/g, " "))),
-      h("td", { class: "mono small" }, (x.commits || []).map((c) => corto(c, 8)).join(", ") || "–"),
-      h("td", { class: "mono small wrap" }, x.prueba || "–")))
-      : [h("tr", {}, h("td", { colspan: 7, class: "muted" }, "Ningún hallazgo coincide con el filtro."))]));
-  }
-  async function cargarAuditoria() {
-    const r = await api("/auditoria");
-    const av = $("#aud-aviso");
-    if (!r.ok) {
-      av.replaceChildren(aviso(r.status === 409 ? "La auditoría aún no está generada: falta docs/auditoria/estado.json (ejecuta scripts/estado_auditoria.py)." : msgRuta(r, "La auditoría")));
-      $("#aud-resumen").replaceChildren(); $("#aud-filtros").hidden = true; $("#aud-tabla-wrap").hidden = true; $("#aud-cuenta").textContent = "";
-      return;
-    }
-    av.replaceChildren();
-    aud.hallazgos = Array.isArray(r.data.hallazgos) ? r.data.hallazgos : [];
-    const res = r.data.resumen || {};
-    $("#aud-resumen").replaceChildren(h("p", { class: "small" }, h("strong", {}, `${res.total ?? aud.hallazgos.length} hallazgos`), r.data.generado ? ` · generado ${r.data.generado}` : ""),
-      chipsConteo("Por estado", res.por_estado || contar(aud.hallazgos, "estado"), claseEstado),
-      chipsConteo("Por severidad", res.por_severidad || contar(aud.hallazgos, "severidad"), claseSev));
-    llenarSelect($("#aud-f-estado"), aud.hallazgos.map((x) => x.estado), "Todos");
-    llenarSelect($("#aud-f-sev"), aud.hallazgos.map((x) => x.severidad), "Todas");
-    llenarSelect($("#aud-f-grupo"), aud.hallazgos.map((x) => x.grupo), "Todos");
-    $("#aud-filtros").hidden = false; $("#aud-tabla-wrap").hidden = false;
-    pintarAuditoria();
-  }
-  $("#aud-filtros").addEventListener("input", pintarAuditoria);
-  $("#aud-filtros").addEventListener("submit", (ev) => ev.preventDefault());
-  $("#btn-aud-recargar").addEventListener("click", cargarAuditoria);
+  $("#ir-a").addEventListener("change", (ev) => {
+    const s = document.getElementById(ev.currentTarget.value);
+    if (s) { s.scrollIntoView({ behavior: "smooth", block: "start" }); history.replaceState(null, "", `#${s.id}`); }
+  });
 
-  // ---- R8 · entrega
-  async function cargarEntrega() {
-    const r = await api("/entrega"), c = $("#entrega-contenido");
-    if (!r.ok) { c.replaceChildren(aviso(msgRuta(r, "La entrega"))); return; }
-    const ent = Array.isArray(r.data.entregables) ? r.data.entregables : [];
-    c.replaceChildren(h("ul", { class: "entregables" }, ent.map((x) => h("li", {}, marca(x.existe, "existe", "pendiente"),
-      h("div", {}, h("strong", {}, x.nombre), " ", h("span", { class: `chip ${x.existe ? "chip-ok" : "chip-pend"}` }, x.existe ? "existe" : "pendiente"),
-        h("div", { class: "small muted" }, h("span", { class: "mono" }, x.archivo || ""), x.detalle ? ` · ${x.detalle}` : ""))))));
-  }
-
-  cargarAuditoria();
-  cargarEntrega();
   ciclo();
 })();
 

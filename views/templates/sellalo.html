@@ -9,60 +9,37 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
-<body class="sellalo">
-<header class="topbar">
-  <div class="brand">
-    <div class="brand-mark" aria-hidden="true">
-      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg>
-    </div>
-    <div>
-      <h1>Sellalo · <span id="enc-lab">Nodo</span></h1>
-      <p class="subtitle"><span id="enc-red">Red Sellalo</span> · génesis <span class="mono" id="enc-genesis" title="">…</span></p>
-    </div>
-  </div>
-  <div class="topbar-actions">
-    <span class="badge badge-idle lock-badge" id="enc-estado" role="status">
-      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path id="ico-arco" d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
-      <span id="enc-estado-txt">Conectando…</span>
-    </span>
-    <span class="badge badge-idle" id="enc-altura" title="Altura y punta de la cadena">altura – · punta –</span>
-    <a class="btn btn-on-dark btn-link" href="/simulador">Simulador de consenso</a>
-  </div>
-</header>
+<body class="sellalo con-grupos">
+{% set vista = 'nodo' %}{% set con_estado = true %}
+{% include "_encabezado.html" %}
 
-<nav class="indice" aria-label="Índice de secciones">
-  <a href="#seccion-rubrica">Rúbrica</a><a href="#seccion-recorrido">Recorrido</a><a href="#seccion-identidad">Identidad</a>
-  <a href="#seccion-red">Red</a><a href="#seccion-sellar">Sellar</a><a href="#seccion-firmas">Co-firmas</a>
-  <a href="#seccion-minado">Minado</a><a href="#seccion-consenso">Consenso</a><a href="#seccion-cadena">Cadena</a>
-  <a href="#seccion-verificacion">Verificación</a><a href="#seccion-prioridad">Prioridad</a><a href="#seccion-ataques">Ataques</a>
-  <a href="#seccion-cuentas">Cuentas</a><a href="#seccion-auditoria">Auditoría IA</a><a href="#seccion-entrega">Entrega</a>
+<nav class="grupos" aria-label="Ir a una parte del nodo">
+  <ul class="grupos-lista">
+    <li><a href="#seccion-identidad" data-grupo="identidad" data-secciones="identidad red consenso">Identidad y red</a></li>
+    <li><a href="#seccion-sellar" data-grupo="sellos" data-secciones="sellar firmas prioridad">Sellos</a></li>
+    <li><a href="#seccion-minado" data-grupo="cadena" data-secciones="minado cadena">Minado y cadena</a></li>
+    <li><a href="#seccion-verificacion" data-grupo="seguridad" data-secciones="verificacion ataques">Seguridad</a></li>
+    <li><a href="#seccion-cuentas" data-grupo="cuentas" data-secciones="cuentas">Cuentas</a></li>
+  </ul>
+  <label class="grupos-select">
+    <span class="sr-only">Ir a…</span>
+    <select id="ir-a" aria-label="Ir a…">
+      <option value="">Ir a…</option>
+      <option value="seccion-identidad">Identidad y red</option>
+      <option value="seccion-sellar">Sellos</option>
+      <option value="seccion-minado">Minado y cadena</option>
+      <option value="seccion-verificacion">Seguridad</option>
+      <option value="seccion-cuentas">Cuentas</option>
+    </select>
+  </label>
 </nav>
 
 <main id="app">
   <div id="banda" class="sync-banner" role="status" aria-live="polite" hidden></div>
 
-  <!-- Rúbrica de evaluación -->
-  <section class="card" id="seccion-rubrica" aria-labelledby="t-rubrica">
-    <div class="section-head">
-      <div>
-        <h2 id="t-rubrica">Rúbrica de evaluación</h2>
-        <p class="section-hint">Estado en vivo de cada criterio, calculado con este nodo. Pulsa «Ver» para ir a la sección que lo demuestra.</p>
-      </div>
-      <span class="badge badge-idle" id="rubrica-cuenta" role="status">–</span>
-    </div>
-    <div id="rubrica-grid" class="rubrica-grid"><p class="muted">Cargando…</p></div>
-  </section>
-
-  <!-- R7 · Recorrido -->
-  <section class="card" id="seccion-recorrido" aria-labelledby="t-recorrido">
-    <h2 id="t-recorrido">R7 · Recorrido del caso de uso</h2>
-    <p class="section-hint">Los diez pasos del caso de uso, de principio a fin, con su evidencia en vivo.</p>
-    <ol id="recorrido-lista" class="recorrido"><li class="muted">Cargando…</li></ol>
-  </section>
-
   <!-- 1 · Identidad -->
   <section class="card" id="seccion-identidad" aria-labelledby="t-identidad">
-    <h2 id="t-identidad"><span class="step">1</span>Identidad</h2>
+    <h2 id="t-identidad">Identidad</h2>
     <p class="section-hint">La clave privada de este laboratorio está cifrada en disco. Desbloquéala para firmar sellos, minar y conectarte a la red.</p>
     <form id="form-desbloquear" class="form form-grid">
       <label>Contraseña del laboratorio
@@ -83,7 +60,7 @@
 
   <!-- 2 · Red -->
   <section class="card" id="seccion-red" aria-labelledby="t-red">
-    <h2 id="t-red"><span class="step">2</span>Red</h2>
+    <h2 id="t-red">Red</h2>
     <p class="section-hint">Comparte tu IP y tu puerto P2P con los otros laboratorios; ellos harán lo mismo contigo.</p>
     <div class="grid-2 inner-grid consistencia-fila">
       <div id="consistencia" class="consistencia" role="status"><p class="muted small">R5 · Consistencia: esperando datos…</p></div>
@@ -115,9 +92,27 @@
     </div>
   </section>
 
+  <!-- R4 · Consenso -->
+  <section class="card" id="seccion-consenso" aria-labelledby="t-consenso">
+    <h2 id="t-consenso">R4 · Consenso</h2>
+    <p class="section-hint" id="consenso-regla">Regla: gana la cadena válida con más trabajo acumulado.</p>
+    <div class="grid-2 inner-grid">
+      <div>
+        <h3 class="subhead">Dificultad y trabajo acumulado</h3>
+        <p class="small">Dificultad fija de la red: <strong class="mono" id="cons-dif">–</strong></p>
+        <div id="cons-trabajo" class="barras"></div>
+        <dl class="kv" id="cons-contadores"></dl>
+      </div>
+      <div>
+        <h3 class="subhead">Reorganizaciones <span class="count" id="reorg-count">0</span></h3>
+        <ul class="tx-list" id="reorg-lista"></ul>
+      </div>
+    </div>
+  </section>
+
   <!-- 3 · Sellar -->
   <section class="card" id="seccion-sellar" aria-labelledby="t-sellar">
-    <h2 id="t-sellar"><span class="step">3</span>Sellar documento</h2>
+    <h2 id="t-sellar">Sellar documento</h2>
     <p class="section-hint">Sólo el hash SHA-256 del documento sale de tu PC; el contenido nunca se guarda ni se transmite.</p>
     <form id="form-sello" class="form form-grid" autocomplete="off">
       <label>Documento<input id="in-sello-archivo" name="archivo" type="file" required></label>
@@ -135,7 +130,7 @@
 
   <!-- 4 · Co-firmas -->
   <section class="card" id="seccion-firmas" aria-labelledby="t-firmas">
-    <h2 id="t-firmas"><span class="step">4</span>Co-firmas</h2>
+    <h2 id="t-firmas">Co-firmas</h2>
     <p class="section-hint">Un sello multifirma entra a pendientes cuando junta tantas firmas como su umbral.</p>
     <div class="grid-2 inner-grid">
       <div>
@@ -149,11 +144,40 @@
     </div>
   </section>
 
+  <!-- 7 · Prioridad y certificado -->
+  <section class="card" id="seccion-prioridad" aria-labelledby="t-prioridad">
+    <h2 id="t-prioridad">Prioridad y certificado</h2>
+    <p class="section-hint">Averigua quién selló un documento primero. La prioridad es del sello más antiguo en la cadena.</p>
+    <div class="grid-2 inner-grid">
+      <div>
+        <h3 class="subhead">Consultar un documento</h3>
+        <form id="form-prioridad" class="form" autocomplete="off">
+          <label>Documento<input id="in-prio-archivo" name="archivo" type="file"></label>
+          <label>o pega su hash SHA-256<input id="in-prio-hash" name="doc_hash" type="text" class="mono" maxlength="64" placeholder="64 caracteres hexadecimales" spellcheck="false"></label>
+          <div class="row-buttons">
+            <button class="btn" type="submit" id="btn-prio">Consultar</button>
+            <button class="btn btn-ghost" type="button" id="btn-cert" disabled>Descargar certificado</button>
+          </div>
+        </form>
+        <div id="prio-resultado" class="resultado" hidden></div>
+      </div>
+      <div>
+        <h3 class="subhead">Verificar un certificado</h3>
+        <form id="form-verificar" class="form" autocomplete="off">
+          <label>Certificado (.json)<input id="in-ver-cert" name="certificado" type="file" accept=".json,application/json" required></label>
+          <label>Documento original (opcional)<input id="in-ver-doc" name="documento" type="file"></label>
+          <button class="btn" type="submit" id="btn-verificar">Verificar</button>
+        </form>
+        <div id="ver-resultado" class="resultado" hidden></div>
+      </div>
+    </div>
+  </section>
+
   <!-- 5 · Pendientes y minado -->
   <section class="card" id="seccion-minado" aria-labelledby="t-minado">
     <div class="section-head">
       <div>
-        <h2 id="t-minado"><span class="step">5</span>Pendientes y minado</h2>
+        <h2 id="t-minado">Pendientes y minado</h2>
         <p class="section-hint">Minado real con prueba de trabajo: esta PC busca el nonce y difunde el bloque a los pares.</p>
       </div>
       <span class="badge badge-idle" id="minado-badge">detenido</span>
@@ -193,27 +217,9 @@
     </details>
   </section>
 
-  <!-- R4 · Consenso -->
-  <section class="card" id="seccion-consenso" aria-labelledby="t-consenso">
-    <h2 id="t-consenso">R4 · Consenso</h2>
-    <p class="section-hint" id="consenso-regla">Regla: gana la cadena válida con más trabajo acumulado.</p>
-    <div class="grid-2 inner-grid">
-      <div>
-        <h3 class="subhead">Dificultad y trabajo acumulado</h3>
-        <p class="small">Dificultad fija de la red: <strong class="mono" id="cons-dif">–</strong></p>
-        <div id="cons-trabajo" class="barras"></div>
-        <dl class="kv" id="cons-contadores"></dl>
-      </div>
-      <div>
-        <h3 class="subhead">Reorganizaciones <span class="count" id="reorg-count">0</span></h3>
-        <ul class="tx-list" id="reorg-lista"></ul>
-      </div>
-    </div>
-  </section>
-
   <!-- 6 · Cadena -->
   <section class="card" id="seccion-cadena" aria-labelledby="t-cadena">
-    <h2 id="t-cadena"><span class="step">6</span>Cadena</h2>
+    <h2 id="t-cadena">Cadena</h2>
     <p class="section-hint">Últimos bloques (el más nuevo arriba). Abre un bloque para ver sus transacciones.</p>
     <div id="cadena" class="bloques"></div>
   </section>
@@ -237,38 +243,9 @@
     <div id="verif-resultado" class="verif-resultado" aria-live="polite"></div>
   </section>
 
-  <!-- 7 · Prioridad y certificado -->
-  <section class="card" id="seccion-prioridad" aria-labelledby="t-prioridad">
-    <h2 id="t-prioridad"><span class="step">7</span>Prioridad y certificado</h2>
-    <p class="section-hint">Averigua quién selló un documento primero. La prioridad es del sello más antiguo en la cadena.</p>
-    <div class="grid-2 inner-grid">
-      <div>
-        <h3 class="subhead">Consultar un documento</h3>
-        <form id="form-prioridad" class="form" autocomplete="off">
-          <label>Documento<input id="in-prio-archivo" name="archivo" type="file"></label>
-          <label>o pega su hash SHA-256<input id="in-prio-hash" name="doc_hash" type="text" class="mono" maxlength="64" placeholder="64 caracteres hexadecimales" spellcheck="false"></label>
-          <div class="row-buttons">
-            <button class="btn" type="submit" id="btn-prio">Consultar</button>
-            <button class="btn btn-ghost" type="button" id="btn-cert" disabled>Descargar certificado</button>
-          </div>
-        </form>
-        <div id="prio-resultado" class="resultado" hidden></div>
-      </div>
-      <div>
-        <h3 class="subhead">Verificar un certificado</h3>
-        <form id="form-verificar" class="form" autocomplete="off">
-          <label>Certificado (.json)<input id="in-ver-cert" name="certificado" type="file" accept=".json,application/json" required></label>
-          <label>Documento original (opcional)<input id="in-ver-doc" name="documento" type="file"></label>
-          <button class="btn" type="submit" id="btn-verificar">Verificar</button>
-        </form>
-        <div id="ver-resultado" class="resultado" hidden></div>
-      </div>
-    </div>
-  </section>
-
   <!-- 8 · Ataques -->
   <section class="card" id="seccion-ataques" aria-labelledby="t-ataques">
-    <h2 id="t-ataques"><span class="step">8</span>Laboratorio de ataques</h2>
+    <h2 id="t-ataques">Laboratorio de ataques</h2>
     <p class="section-hint">Fabrica una manipulación sobre una copia y mira cómo se rechaza. Tu cadena honesta no cambia.</p>
     <form id="form-ataque" class="form form-grid" autocomplete="off">
       <label>Ataque<select id="in-ataque-tipo" name="tipo" required></select></label>
@@ -284,7 +261,7 @@
 
   <!-- 9 · Cuentas y bitácora -->
   <section class="card" id="seccion-cuentas" aria-labelledby="t-cuentas">
-    <h2 id="t-cuentas"><span class="step">9</span>Cuentas y bitácora</h2>
+    <h2 id="t-cuentas">Cuentas y bitácora</h2>
     <div class="grid-2 inner-grid">
       <div>
         <h3 class="subhead">Créditos por laboratorio</h3>
@@ -305,41 +282,10 @@
     </div>
   </section>
 
-  <!-- Auditoría con IA -->
-  <section class="card" id="seccion-auditoria" aria-labelledby="t-auditoria">
-    <div class="section-head">
-      <div>
-        <h2 id="t-auditoria">Auditoría con IA</h2>
-        <p class="section-hint">Hallazgos de la auditoría, la decisión tomada, el commit que los corrige y la prueba que lo demuestra.</p>
-      </div>
-      <button class="btn btn-ghost btn-small" type="button" id="btn-aud-recargar">Recargar</button>
-    </div>
-    <div id="aud-aviso"></div>
-    <div id="aud-resumen" class="aud-resumen"></div>
-    <form id="aud-filtros" class="aud-filtros" autocomplete="off" hidden>
-      <label>Estado<select id="aud-f-estado"><option value="">Todos</option></select></label>
-      <label>Severidad<select id="aud-f-sev"><option value="">Todas</option></select></label>
-      <label>Grupo<select id="aud-f-grupo"><option value="">Todos</option></select></label>
-      <label>Texto<input id="aud-f-texto" type="search" placeholder="id, título, commit…"></label>
-    </form>
-    <p class="small muted" id="aud-cuenta" aria-live="polite"></p>
-    <div class="table-wrap" id="aud-tabla-wrap" hidden>
-      <table class="table">
-        <thead><tr><th>Id</th><th>Título</th><th>Severidad</th><th>Decisión</th><th>Estado</th><th>Commits</th><th>Prueba</th></tr></thead>
-        <tbody id="aud-cuerpo"></tbody>
-      </table>
-    </div>
-  </section>
-
-  <!-- R8 · Entrega -->
-  <section class="card" id="seccion-entrega" aria-labelledby="t-entrega">
-    <h2 id="t-entrega">R8 · Entrega</h2>
-    <p class="section-hint">Entregables del proyecto. Lo que no existe aparece como pendiente.</p>
-    <div id="entrega-contenido"><p class="muted small">Cargando…</p></div>
-  </section>
 </main>
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
+<script src="{{ url_for('static', filename='comun.js') }}"></script>
 <script src="{{ url_for('static', filename='sellalo.js') }}"></script>
 </body>
 </html>

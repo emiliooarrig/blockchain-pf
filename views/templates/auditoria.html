@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sellalo · Auditoría IA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="sellalo">
+{% set vista = 'auditoria' %}{% set con_estado = true %}
+{% include "_encabezado.html" %}
+
+<main id="app" class="vista-simple">
+  {% if not modo_nodo %}
+  <div class="card aviso-modo" role="status">
+    <strong>Esta vista requiere el modo nodo.</strong> Este proceso corre como simulador, así que la API de la auditoría responde 409.
+    Arranca el nodo con <code>--modo nodo</code> o levanta una red local con <code>python scripts/lanzar_red_local.py --labs 3 --lanzar</code>.
+  </div>
+  {% endif %}
+  <section class="card" id="seccion-auditoria" aria-labelledby="t-auditoria">
+    <div class="section-head">
+      <div>
+        <h2 id="t-auditoria">Auditoría con IA</h2>
+        <p class="section-hint">Un agente de IA revisó el código del proyecto, clasificó cada hallazgo por severidad y decidió si corregirlo o justificarlo.
+          Aquí ves cada hallazgo con su decisión, el commit que lo corrige y la prueba que lo demuestra.</p>
+        <p class="small muted">Fuentes: <span class="mono">docs/auditoria/estado.json</span> (generado con <span class="mono">scripts/estado_auditoria.py</span>)
+          · hallazgos en <span class="mono">docs/auditoria/HALLAZGOS.md</span>, decisiones en <span class="mono">docs/auditoria/TRIAJE.md</span> y correcciones en <span class="mono">docs/auditoria/correcciones/</span>.</p>
+      </div>
+      <button class="btn btn-ghost btn-small" type="button" id="btn-aud-recargar">Recargar</button>
+    </div>
+    <div id="aud-aviso"></div>
+    <div id="aud-resumen" class="aud-resumen"></div>
+    <form id="aud-filtros" class="aud-filtros" autocomplete="off" hidden>
+      <label>Estado<select id="aud-f-estado"><option value="">Todos</option></select></label>
+      <label>Severidad<select id="aud-f-sev"><option value="">Todas</option></select></label>
+      <label>Grupo<select id="aud-f-grupo"><option value="">Todos</option></select></label>
+      <label>Texto<input id="aud-f-texto" type="search" placeholder="id, título, commit…"></label>
+    </form>
+    <p class="small muted" id="aud-cuenta" aria-live="polite"></p>
+    <div class="table-wrap" id="aud-tabla-wrap" hidden>
+      <table class="table">
+        <thead><tr><th>Id</th><th>Título</th><th>Severidad</th><th>Decisión</th><th>Estado</th><th>Commits</th><th>Prueba</th></tr></thead>
+        <tbody id="aud-cuerpo"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<script src="{{ url_for('static', filename='comun.js') }}"></script>
+<script src="{{ url_for('static', filename='auditoria.js') }}"></script>
+</body>
+</html>

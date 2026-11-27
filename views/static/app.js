@@ -342,12 +342,9 @@
     enviar(ruta, cuerpo, ev.currentTarget);
   }));
 
-  // Enlace al nodo Sellalo: sólo si este proceso es un nodo (en modo simulador la ruta responde 409).
+  // Aviso de modo: en modo simulador /api/sellalo/estado responde 409 y las vistas del nodo quedan deshabilitadas.
   fetch("/api/sellalo/estado", { cache: "no-store" })
-    .then((r) => {
-      if (r.ok) $("#enlace-nodo").hidden = false;
-      else if (r.status === 409) $("#aviso-modo").hidden = false;   // proceso en modo simulador
-    })
+    .then((r) => { if (r.status === 409) $("#aviso-modo").hidden = false; })
     .catch(() => {});
 
   ui.primeraVez = true;

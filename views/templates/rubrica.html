@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sellalo · Rúbrica</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="sellalo">
+{% set vista = 'rubrica' %}{% set con_estado = true %}
+{% include "_encabezado.html" %}
+
+<main id="app" class="vista-simple">
+  {% if not modo_nodo %}
+  <div class="card aviso-modo" role="status">
+    <strong>Esta vista requiere el modo nodo.</strong> Este proceso corre como simulador, así que las APIs de la rúbrica responden 409.
+    Arranca el nodo con <code>--modo nodo</code> o levanta una red local con <code>python scripts/lanzar_red_local.py --labs 3 --lanzar</code>.
+  </div>
+  {% endif %}
+  <div id="banda" class="sync-banner" role="status" aria-live="polite" hidden></div>
+
+  <section class="card" id="seccion-rubrica" aria-labelledby="t-rubrica">
+    <div class="section-head">
+      <div>
+        <h2 id="t-rubrica">Rúbrica de evaluación</h2>
+        <p class="section-hint">Estado en vivo de cada criterio, calculado con este nodo. Pulsa «Ver» para ir a la sección del nodo que lo demuestra.</p>
+      </div>
+      <span class="badge badge-idle" id="rubrica-cuenta" role="status">–</span>
+    </div>
+    <div id="rubrica-grid" class="rubrica-grid"><p class="muted">Cargando…</p></div>
+  </section>
+
+  <section class="card" id="seccion-recorrido" aria-labelledby="t-recorrido">
+    <h2 id="t-recorrido">R7 · Recorrido del caso de uso</h2>
+    <p class="section-hint">Los diez pasos del caso de uso, de principio a fin, con su evidencia en vivo.</p>
+    <ol id="recorrido-lista" class="recorrido"><li class="muted">Cargando…</li></ol>
+  </section>
+</main>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<script src="{{ url_for('static', filename='comun.js') }}"></script>
+<script src="{{ url_for('static', filename='rubrica.js') }}"></script>
+</body>
+</html>

@@ -418,12 +418,16 @@ fieldset.autores legend { padding: 0 6px; font-size: .82rem; font-weight: 600; }
 
 /* ---- Rúbrica en la interfaz ---- */
 .sellalo section.card { scroll-margin-top: 64px; }
-.indice {
-  position: sticky; top: 0; z-index: 20; display: flex; gap: 4px; overflow-x: auto; padding: 8px 16px;
+.grupos {
+  position: sticky; top: 0; z-index: 20; display: flex; justify-content: center; padding: 8px 16px;
   background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-sm);
 }
-.indice a { flex: 0 0 auto; padding: 6px 12px; border-radius: 999px; font-size: .8rem; font-weight: 600; text-decoration: none; color: var(--accent); white-space: nowrap; }
-.indice a:hover { background: var(--accent-soft); }
+.grupos-lista { list-style: none; margin: 0; padding: 0; display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; }
+.grupos-lista a { display: block; padding: 6px 14px; border-radius: 999px; font-size: .85rem; font-weight: 600; text-decoration: none; color: var(--accent); white-space: nowrap; }
+.grupos-lista a:hover { background: var(--accent-soft); }
+.grupos-lista a[aria-current="true"] { background: var(--accent); color: #fff; }
+.grupos-select { display: none; width: 100%; }
+.grupos-select select { width: 100%; }
 .sellalo main { margin-top: 24px; }
 .chip-pend { background: var(--code-bg); color: var(--muted); }
 .marca { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; margin-right: 6px; flex: 0 0 auto; vertical-align: middle; }
@@ -487,10 +491,8 @@ fieldset.autores legend { padding: 0 6px; font-size: .82rem; font-weight: 600; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .aud-filtros { display: grid; gap: 10px 14px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 10px 0; }
 .aud-filtros label { display: grid; gap: 4px; font-size: .8rem; font-weight: 600; }
-.entregables { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-.entregables li { display: flex; align-items: flex-start; gap: 2px; }
 .consistencia-fila { margin-bottom: 18px; }
-@media (max-width: 560px) { .barra-fila { grid-template-columns: 70px 1fr auto; } .indice { padding: 6px 8px; } }
+@media (max-width: 560px) { .barra-fila { grid-template-columns: 70px 1fr auto; } }
 
 /* Auditoría: los ids AUD-0NN no se parten */
 #aud-tabla-wrap td:first-child { white-space: nowrap; font-family: var(--mono); }
@@ -498,3 +500,26 @@ fieldset.autores legend { padding: 0 6px; font-size: .82rem; font-weight: 600; }
 /* Aviso en modo simulador: dónde está la rúbrica */
 .aviso-modo { border-left: 4px solid var(--accent); background: var(--accent-soft); margin-bottom: 1rem; }
 .aviso-modo pre { margin: .4rem 0; overflow-x: auto; }
+
+/* ---------- Navegación entre vistas (encabezado común) ---------- */
+.topbar { flex-direction: column; align-items: stretch; gap: 18px; }
+.topbar-fila { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.estado-compacto { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.vistas { display: inline-flex; align-self: flex-start; gap: 2px; padding: 4px; border-radius: 12px; background: rgba(255, 255, 255, .12); border: 1px solid rgba(255, 255, 255, .2); }
+.vista-tab { padding: 7px 18px; border-radius: 9px; font-size: .9rem; font-weight: 600; text-decoration: none; color: #fff; white-space: nowrap; }
+a.vista-tab:hover { background: rgba(255, 255, 255, .18); }
+.vista-tab[aria-current="page"] { background: #fff; color: var(--blue-950); }
+.vista-tab.is-disabled { opacity: .5; cursor: not-allowed; }
+.sellalo main.vista-simple { margin-top: -48px; }
+.con-grupos .topbar { padding-bottom: 24px; }
+
+@media (max-width: 640px) {
+  .vistas { align-self: stretch; display: flex; }
+  .vista-tab { flex: 1 1 0; min-width: 0; padding: 7px 4px; text-align: center; font-size: .82rem; }
+  .grupos-lista { display: none; }
+  .grupos-select { display: block; }
+  .grupos { padding: 8px 12px; }
+  .estado-compacto { gap: 6px; }
+  .topbar { padding-bottom: 64px; }
+  .con-grupos .topbar { padding-bottom: 20px; }
+}

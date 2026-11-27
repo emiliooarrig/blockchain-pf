@@ -12,7 +12,7 @@ from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
 
 from controllers import api, paginas
-from controllers.sellalo import ContextoNodo, paginas_nodo, resolver_host, sellalo
+from controllers.sellalo import ContextoNodo, paginas_nodo, paginas_vistas, resolver_host, sellalo
 from models import Simulador
 from models.coordinador_sellos import CoordinadorSellos
 from models.errores import ErrorEntrada
@@ -66,8 +66,13 @@ def create_app(reproducible: bool = False, contrasena: str | None = None, contex
     app.json.ensure_ascii = False
     app.config["SIMULADOR"] = Simulador(reproducible=reproducible, contrasena=contrasena)
     app.register_blueprint(paginas_nodo if contexto_nodo else paginas)
+    app.register_blueprint(paginas_vistas)
     app.register_blueprint(api)
     app.register_blueprint(sellalo)
+
+    @app.context_processor
+    def modo():
+        return {"modo_nodo": contexto_nodo is not None}
 
     @app.before_request
     def proteger_escrituras():

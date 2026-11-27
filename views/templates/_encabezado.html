@@ -1,0 +1,42 @@
+{# Encabezado común de las vistas. Variables: vista ('nodo'|'rubrica'|'auditoria'|'simulador'), con_estado (bool), subtitulo. #}
+{% set pestanas = [('nodo', '/', 'Nodo'), ('rubrica', '/rubrica', 'Rúbrica'), ('auditoria', '/auditoria', 'Auditoría'),
+                   ('simulador', '/simulador' if modo_nodo else '/', 'Simulador')] %}
+<header class="topbar">
+  <div class="topbar-fila">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg>
+      </div>
+      <div>
+        {% if con_estado %}
+        <h1>Sellalo · <span id="enc-lab">Nodo</span></h1>
+        <p class="subtitle"><span id="enc-red">Red Sellalo</span> · génesis <span class="mono" id="enc-genesis" title="">…</span></p>
+        {% else %}
+        <h1>Sellalo</h1>
+        <p class="subtitle">{{ subtitulo }}</p>
+        {% endif %}
+      </div>
+    </div>
+    {% if con_estado %}
+    <div class="estado-compacto" role="group" aria-label="Estado del nodo">
+      <span class="badge badge-idle lock-badge" id="enc-estado" role="status">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path id="ico-arco" d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        <span id="enc-estado-txt">Conectando…</span>
+      </span>
+      <span class="badge badge-idle" id="enc-altura">altura –</span>
+      <span class="badge badge-idle lock-badge" id="enc-sync">– sincronizados</span>
+    </div>
+    {% endif %}
+  </div>
+  <nav class="vistas" aria-label="Vistas de la aplicación">
+    {% for clave, ruta, texto in pestanas %}
+      {% if clave == vista %}
+    <a class="vista-tab" href="{{ ruta }}" aria-current="page" data-vista="{{ clave }}">{{ texto }}</a>
+      {% elif not modo_nodo and clave != 'simulador' %}
+    <span class="vista-tab is-disabled" aria-disabled="true" data-vista="{{ clave }}" title="Requiere el modo nodo (arranca con --modo nodo).">{{ texto }}</span>
+      {% else %}
+    <a class="vista-tab" href="{{ ruta }}" data-vista="{{ clave }}">{{ texto }}</a>
+      {% endif %}
+    {% endfor %}
+  </nav>
+</header>
