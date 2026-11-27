@@ -99,7 +99,7 @@
     <div class="grid-2 inner-grid">
       <div>
         <h3 class="subhead">Dificultad y trabajo acumulado</h3>
-        <p class="small">Dificultad fija de la red: <strong class="mono" id="cons-dif">–</strong></p>
+        <p class="small">Dificultad vigente de la red (génesis o último ajuste co-firmado): <strong class="mono" id="cons-dif">–</strong></p>
         <div id="cons-trabajo" class="barras"></div>
         <dl class="kv" id="cons-contadores"></dl>
       </div>
@@ -211,7 +211,7 @@
       </div>
       <div>
         <form id="form-minar" class="form form-grid" autocomplete="off">
-          <p id="dif-fija" class="muted" hidden>Dificultad de la red (fija en el génesis): <strong id="dif-fija-valor"></strong> ceros hex.</p>
+          <p id="dif-fija" class="muted" hidden>Se minará con la dificultad vigente de la red: <strong id="dif-fija-valor"></strong> ceros hex.</p>
           <label id="lbl-dif">Dificultad (ceros hex) <span class="muted small" id="dif-rango"></span>
             <input id="in-dif" name="dificultad" type="number" min="1" max="6" value="3" required></label>
           <label class="check"><input id="in-continuo" name="continuo" type="checkbox"> Minado continuo (sigue con los nuevos pendientes)</label>
