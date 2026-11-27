@@ -30,8 +30,35 @@
   </div>
 </header>
 
+<nav class="indice" aria-label="Índice de secciones">
+  <a href="#seccion-rubrica">Rúbrica</a><a href="#seccion-recorrido">Recorrido</a><a href="#seccion-identidad">Identidad</a>
+  <a href="#seccion-red">Red</a><a href="#seccion-sellar">Sellar</a><a href="#seccion-firmas">Co-firmas</a>
+  <a href="#seccion-minado">Minado</a><a href="#seccion-consenso">Consenso</a><a href="#seccion-cadena">Cadena</a>
+  <a href="#seccion-verificacion">Verificación</a><a href="#seccion-prioridad">Prioridad</a><a href="#seccion-ataques">Ataques</a>
+  <a href="#seccion-cuentas">Cuentas</a><a href="#seccion-auditoria">Auditoría IA</a><a href="#seccion-entrega">Entrega</a>
+</nav>
+
 <main id="app">
   <div id="banda" class="sync-banner" role="status" aria-live="polite" hidden></div>
+
+  <!-- Rúbrica de evaluación -->
+  <section class="card" id="seccion-rubrica" aria-labelledby="t-rubrica">
+    <div class="section-head">
+      <div>
+        <h2 id="t-rubrica">Rúbrica de evaluación</h2>
+        <p class="section-hint">Estado en vivo de cada criterio, calculado con este nodo. Pulsa «Ver» para ir a la sección que lo demuestra.</p>
+      </div>
+      <span class="badge badge-idle" id="rubrica-cuenta" role="status">–</span>
+    </div>
+    <div id="rubrica-grid" class="rubrica-grid"><p class="muted">Cargando…</p></div>
+  </section>
+
+  <!-- R7 · Recorrido -->
+  <section class="card" id="seccion-recorrido" aria-labelledby="t-recorrido">
+    <h2 id="t-recorrido">R7 · Recorrido del caso de uso</h2>
+    <p class="section-hint">Los diez pasos del caso de uso, de principio a fin, con su evidencia en vivo.</p>
+    <ol id="recorrido-lista" class="recorrido"><li class="muted">Cargando…</li></ol>
+  </section>
 
   <!-- 1 · Identidad -->
   <section class="card" id="seccion-identidad" aria-labelledby="t-identidad">
@@ -46,12 +73,25 @@
         <button class="btn btn-ghost" type="button" id="btn-bloquear">Bloquear</button>
       </div>
     </form>
+    <div class="clave-panel" id="clave-panel">
+      <h3 class="subhead">R3 · Protección de la clave</h3>
+      <p class="small muted">La clave privada se guarda cifrada con AES-256-GCM, con una llave derivada de tu contraseña mediante scrypt (lenta y costosa en memoria a propósito).
+        Sólo existe en claro en la memoria del nodo mientras está desbloqueado; en disco nunca.</p>
+      <div id="clave-contenido"><p class="muted small">Cargando…</p></div>
+    </div>
   </section>
 
   <!-- 2 · Red -->
   <section class="card" id="seccion-red" aria-labelledby="t-red">
     <h2 id="t-red"><span class="step">2</span>Red</h2>
     <p class="section-hint">Comparte tu IP y tu puerto P2P con los otros laboratorios; ellos harán lo mismo contigo.</p>
+    <div class="grid-2 inner-grid consistencia-fila">
+      <div id="consistencia" class="consistencia" role="status"><p class="muted small">R5 · Consistencia: esperando datos…</p></div>
+      <div>
+        <h3 class="subhead">Persistencia de mi copia</h3>
+        <dl class="kv kv-plano" id="persistencia"><dt>Estado</dt><dd class="muted">–</dd></dl>
+      </div>
+    </div>
     <div class="grid-2 inner-grid">
       <div>
         <h3 class="subhead">Mis direcciones</h3>
@@ -153,11 +193,48 @@
     </details>
   </section>
 
+  <!-- R4 · Consenso -->
+  <section class="card" id="seccion-consenso" aria-labelledby="t-consenso">
+    <h2 id="t-consenso">R4 · Consenso</h2>
+    <p class="section-hint" id="consenso-regla">Regla: gana la cadena válida con más trabajo acumulado.</p>
+    <div class="grid-2 inner-grid">
+      <div>
+        <h3 class="subhead">Dificultad y trabajo acumulado</h3>
+        <p class="small">Dificultad fija de la red: <strong class="mono" id="cons-dif">–</strong></p>
+        <div id="cons-trabajo" class="barras"></div>
+        <dl class="kv" id="cons-contadores"></dl>
+      </div>
+      <div>
+        <h3 class="subhead">Reorganizaciones <span class="count" id="reorg-count">0</span></h3>
+        <ul class="tx-list" id="reorg-lista"></ul>
+      </div>
+    </div>
+  </section>
+
   <!-- 6 · Cadena -->
   <section class="card" id="seccion-cadena" aria-labelledby="t-cadena">
     <h2 id="t-cadena"><span class="step">6</span>Cadena</h2>
     <p class="section-hint">Últimos bloques (el más nuevo arriba). Abre un bloque para ver sus transacciones.</p>
     <div id="cadena" class="bloques"></div>
+  </section>
+
+  <!-- R2 · Verificación -->
+  <section class="card" id="seccion-verificacion" aria-labelledby="t-verificacion">
+    <h2 id="t-verificacion">R2 · Verificación de integridad</h2>
+    <p class="section-hint">Recalcula en tu nodo cada comprobación de cada bloque y transacción. También puedes alterar una <strong>copia</strong> para ver qué comprobación la rechaza.</p>
+    <div class="grid-2 inner-grid">
+      <div>
+        <h3 class="subhead">Auditar mi copia</h3>
+        <button class="btn" type="button" id="btn-auditar">Auditar mi copia</button>
+      </div>
+      <form id="form-simular" class="form form-grid" autocomplete="off">
+        <h3 class="subhead">Simular alteración</h3>
+        <label>Tipo de alteración<select id="in-sim-tipo" name="tipo" required></select></label>
+        <label>Número de bloque<input id="in-sim-bloque" name="bloque" type="number" min="0" value="1" required></label>
+        <div class="row-buttons"><button class="btn btn-danger" type="submit" id="btn-simular">Simular alteración</button></div>
+      </form>
+    </div>
+    <div id="verif-resultado" class="verif-resultado" aria-live="polite"></div>
   </section>
 
   <!-- 7 · Prioridad y certificado -->
@@ -226,6 +303,39 @@
         <ul class="log" id="bitacora"></ul>
       </div>
     </div>
+  </section>
+
+  <!-- Auditoría con IA -->
+  <section class="card" id="seccion-auditoria" aria-labelledby="t-auditoria">
+    <div class="section-head">
+      <div>
+        <h2 id="t-auditoria">Auditoría con IA</h2>
+        <p class="section-hint">Hallazgos de la auditoría, la decisión tomada, el commit que los corrige y la prueba que lo demuestra.</p>
+      </div>
+      <button class="btn btn-ghost btn-small" type="button" id="btn-aud-recargar">Recargar</button>
+    </div>
+    <div id="aud-aviso"></div>
+    <div id="aud-resumen" class="aud-resumen"></div>
+    <form id="aud-filtros" class="aud-filtros" autocomplete="off" hidden>
+      <label>Estado<select id="aud-f-estado"><option value="">Todos</option></select></label>
+      <label>Severidad<select id="aud-f-sev"><option value="">Todas</option></select></label>
+      <label>Grupo<select id="aud-f-grupo"><option value="">Todos</option></select></label>
+      <label>Texto<input id="aud-f-texto" type="search" placeholder="id, título, commit…"></label>
+    </form>
+    <p class="small muted" id="aud-cuenta" aria-live="polite"></p>
+    <div class="table-wrap" id="aud-tabla-wrap" hidden>
+      <table class="table">
+        <thead><tr><th>Id</th><th>Título</th><th>Severidad</th><th>Decisión</th><th>Estado</th><th>Commits</th><th>Prueba</th></tr></thead>
+        <tbody id="aud-cuerpo"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- R8 · Entrega -->
+  <section class="card" id="seccion-entrega" aria-labelledby="t-entrega">
+    <h2 id="t-entrega">R8 · Entrega</h2>
+    <p class="section-hint">Entregables del proyecto. Lo que no existe aparece como pendiente.</p>
+    <div id="entrega-contenido"><p class="muted small">Cargando…</p></div>
   </section>
 </main>
 

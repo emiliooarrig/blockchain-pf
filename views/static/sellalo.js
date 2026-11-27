@@ -71,6 +71,7 @@
     else toast(r.data.error || `Error ${r.status}`, "error");
     if (r.ok && alExito) alExito(r.data);
     await actualizar();
+    refrescarRubrica();
     return r;
   }
 
@@ -204,14 +205,14 @@
       btn.addEventListener("click", () => { btn.disabled = true; enviar(null, `/sellos/${encodeURIComponent(s.id)}/firmar`, { metodo: "POST", json: {} }); });
       return h("li", { class: "col" },
         h("div", {}, h("strong", {}, s.titulo), h("span", { class: "small muted" }, ` · ${s.investigador} · propone ${s.laboratorio}`)),
-        h("div", { class: "mono small wrap", title: s.doc_hash }, corto(s.doc_hash, 16)), progreso(s), h("div", {}, btn));
+        h("div", { class: "mono small wrap", title: s.doc_hash }, corto(s.doc_hash, 16)), progreso(s), vistaMultifirma(s), h("div", {}, btn));
     });
     $("#solicitudes").replaceChildren(...(sol.length ? sol : [h("li", { class: "empty" }, "Nadie espera tu firma.")]));
     const propios = e.sellos_en_firma.filter((s) => s.laboratorio === e.nodo.id);
     $("#enfirma-count").textContent = propios.length;
     const mios = propios.map((s) => h("li", { class: "col" },
       h("div", {}, h("strong", {}, s.titulo), h("span", { class: "small muted" }, ` · ${s.investigador}`)),
-      h("div", { class: "mono small wrap", title: s.doc_hash }, corto(s.doc_hash, 16)), progreso(s)));
+      h("div", { class: "mono small wrap", title: s.doc_hash }, corto(s.doc_hash, 16)), progreso(s), vistaMultifirma(s)));
     $("#enfirma").replaceChildren(...(mios.length ? mios : [h("li", { class: "empty" }, "No tienes sellos esperando firmas.")]));
   }
 
@@ -219,7 +220,7 @@
     const n = e.nodo, st = n.estadisticas || {};
     $("#pend-count").textContent = n.pendientes.length;
     const pend = n.pendientes.map((p) => (p.tipo === "sello"
-      ? h("li", {}, h("span", {}, h("span", { class: "chip" }, "sello"), ` ${p.titulo}`), h("span", { class: "small muted" }, `${p.laboratorio} · ${p.firmas}/${p.umbral} firmas`))
+      ? h("li", {}, h("span", {}, h("span", { class: "chip" }, "sello"), ` ${p.titulo}`), h("span", { class: "small muted" }, `${p.laboratorio} · `), vistaMultifirma(p, true))
       : h("li", {}, h("span", {}, h("span", { class: "chip chip-warn" }, "transferencia"), ` ${p.emisor} → ${p.receptor}`), h("span", { class: "mono" }, `${p.monto} cr.`))));
     $("#pendientes").replaceChildren(...(pend.length ? pend : [h("li", { class: "empty" }, "No hay pendientes.")]));
     const b = $("#minado-badge");
@@ -239,8 +240,7 @@
     if (tx && tx.doc_hash) {
       return h("div", { class: "entry" },
         h("span", { class: "chip" }, "sello"), " ", h("strong", {}, tx.titulo), h("span", { class: "muted" }, ` · ${tx.investigador}`),
-        h("div", {}, `Laboratorio ${tx.laboratorio} · autores: ${(tx.autores || []).join(", ")}`),
-        h("div", {}, `Firmas ${lista(tx.firmas).length}/${tx.umbral}: ${lista(tx.firmas).join(", ")}`),
+        h("div", {}, `Laboratorio ${tx.laboratorio}`), vistaMultifirma(tx),
         h("div", { class: "mono small", title: tx.doc_hash }, corto(tx.doc_hash, 24)));
     }
     if (tx && tx.emisor) {
@@ -328,6 +328,7 @@
   function render(e) {
     renderEncabezado(e); renderBanda(e); renderRed(e); renderFormularios(e); renderFirmas(e);
     renderMinado(e); renderCadena(e); renderCuentas(e); renderBitacora(e); renderBotones(e);
+    renderRecorrido(e); renderConsistencia(e); renderPersistencia(e); renderConsenso(e);
   }
 
   // ---------------------------------------------------------------- sondeo
@@ -342,8 +343,14 @@
       else renderBanda(null, r.data.error || "Sin conexión con el nodo; reintentando…");
     } finally { enCurso = false; }
   }
+  let tic = 0;
   function ciclo() {
-    if (!document.hidden) actualizar();
+    if (!document.hidden) {
+      actualizar();
+      if (tic % 3 === 0) refrescarRubrica();
+      if (tic % 20 === 0) { cargarEntrega(); }
+      tic++;
+    }
     setTimeout(ciclo, 1000);
   }
   document.addEventListener("visibilitychange", () => { if (!document.hidden) actualizar(); });
@@ -404,7 +411,7 @@
     return h("div", { class: "sello-item" },
       h("p", {}, h("span", { class: `chip ${s.prioritario ? "chip-ok" : ""}` }, etiqueta), " ", h("strong", {}, s.titulo)),
       h("p", { class: "small" }, `Investigador: ${s.investigador} · laboratorio ${s.laboratorio}`),
-      h("p", { class: "small" }, `Autores: ${(s.autores || []).join(", ")}`),
+      vistaMultifirma(s),
       h("p", { class: "small" }, `Bloque #${s.numero} · ${fecha(s.fecha_bloque)} · `,
         h("span", { class: `chip ${s.confirmado ? "chip-ok" : "chip-warn"}` }, `${Math.min(s.confirmaciones, s.requeridas)}/${s.requeridas} confirmaciones`)));
   }
@@ -479,6 +486,7 @@
         h("dt", {}, "Laboratorio"), h("dd", {}, res.laboratorio ?? "–"), h("dt", {}, "Autores"), h("dd", {}, (res.autores || []).join(", ") || "–"),
         h("dt", {}, "Bloque"), h("dd", {}, res.bloque ?? "–"), h("dt", {}, "Fecha"), h("dd", {}, res.fecha || "–"),
         h("dt", {}, "Confirmaciones"), h("dd", {}, res.confirmaciones ?? "–")) : null,
+      pasosCertificado(d.pasos), diagramaMerkle(d.merkle),
       h("p", {}, d.misma_red ? h("span", { class: "chip chip-ok" }, "De esta misma red") : h("span", { class: "chip chip-warn" }, "De otra red (génesis distinto)")));
     mostrar(box, true);
   });
@@ -505,5 +513,329 @@
 
   $("#filtro-bitacora").addEventListener("change", () => { ui.clavesBitacora = ""; if (ui.est) renderBitacora(ui.est); });
 
+  // ================================================================ Rúbrica en la interfaz
+  const NS = "http://www.w3.org/2000/svg";
+  function svgIco(ok) {
+    const s = document.createElementNS(NS, "svg");
+    for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", width: "14", height: "14", fill: "none", stroke: "currentColor",
+      "stroke-width": "3", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true", focusable: "false" })) s.setAttribute(k, v);
+    const p = document.createElementNS(NS, "path");
+    p.setAttribute("d", ok === null ? "M6 12h12" : ok ? "m5 12 5 5 9-10" : "M6 6l12 12M18 6 6 18");
+    s.append(p);
+    return s;
+  }
+  // Marca de comprobación (correcto / falla / sin dato) con texto para lectores de pantalla.
+  function marca(ok, si = "Sí", no = "No") {
+    const v = ok === null || ok === undefined ? null : !!ok;
+    return h("span", { class: `marca ${v === null ? "marca-na" : v ? "marca-ok" : "marca-bad"}` }, svgIco(v), h("span", { class: "sr-only" }, v === null ? "Sin dato" : v ? si : no));
+  }
+  const sinDato = (v) => v === undefined || v === null;
+
+  // Aviso discreto cuando una ruta nueva responde 404/409/sin conexión.
+  function msgRuta(r, que) {
+    if (r.status === 404) return `${que}: este nodo aún no ofrece esta información (ruta no disponible).`;
+    if (r.status === 409) return (r.data && r.data.error) || `${que}: todavía no hay datos.`;
+    if (r.status === 0) return "No se pudo contactar con el nodo.";
+    return (r.data && r.data.error) || `${que}: error ${r.status}.`;
+  }
+  const aviso = (t) => h("p", { class: "aviso", role: "status" }, t);
+
+  // ---- R1 · componente común de multifirma: autores con marca si firmaron y «k de n».
+  function vistaMultifirma(s, compacto) {
+    if (!s) return null;
+    const autores = Array.isArray(s.autores) ? s.autores : lista(s.autores);
+    const umbral = s.umbral;
+    let firmantes = null, cuantas = null;
+    if (Array.isArray(s.firmas) || (s.firmas && typeof s.firmas === "object")) { firmantes = new Set(lista(s.firmas)); cuantas = firmantes.size; }
+    else if (typeof s.firmas === "number") cuantas = s.firmas;
+    const alcanzado = cuantas !== null && typeof umbral === "number" ? cuantas >= umbral : null;
+    const chip = h("span", { class: `chip ${alcanzado ? "chip-ok" : alcanzado === false ? "chip-warn" : ""}`, title: "Firmas recogidas de las necesarias (k de n autores)" },
+      cuantas !== null ? `${cuantas} de ${umbral ?? "?"} firmas` : `umbral ${umbral ?? "?"}`, autores.length ? ` · ${autores.length} autores` : "");
+    if (compacto || !autores.length) return h("span", { class: "multifirma" }, chip);
+    return h("div", { class: "multifirma" }, chip,
+      h("ul", { class: "autores-firma", "aria-label": "Autores del sello" },
+        autores.map((a) => h("li", {}, firmantes ? marca(firmantes.has(a), "firmó", "no ha firmado") : null, h("span", { class: "mono" }, a)))));
+  }
+
+  // ---- Tablero de rúbrica
+  let rubricaEnCurso = false, claveEnCurso = false;
+  async function refrescarRubrica() {
+    if (!rubricaEnCurso) {
+      rubricaEnCurso = true;
+      try { renderRubrica(await api("/rubrica")); } finally { rubricaEnCurso = false; }
+    }
+    if (!claveEnCurso) {
+      claveEnCurso = true;
+      try { renderClave(await api("/clave")); } finally { claveEnCurso = false; }
+    }
+  }
+  const ESTADOS = { demostrado: ["chip-ok", "demostrado"], parcial: ["chip-warn", "parcial"], pendiente: ["chip-pend", "pendiente"] };
+  function renderRubrica(r) {
+    const grid = $("#rubrica-grid"), cuenta = $("#rubrica-cuenta");
+    if (!r.ok) { cuenta.textContent = "sin datos"; grid.replaceChildren(aviso(msgRuta(r, "La rúbrica"))); return; }
+    const cr = Array.isArray(r.data.criterios) ? r.data.criterios : [];
+    const n = cr.filter((c) => c.estado === "demostrado").length;
+    cuenta.textContent = `${n} de ${cr.length || 9} criterios demostrados`;
+    cuenta.className = `badge ${n === cr.length && n > 0 ? "badge-ok" : "badge-idle"}`;
+    grid.replaceChildren(...cr.map((c) => {
+      const [cls, txt] = ESTADOS[c.estado] || ESTADOS.pendiente;
+      const ev = Array.isArray(c.evidencias) ? c.evidencias : [];
+      return h("article", { class: `crit crit-${String(c.estado).replace(/[^a-z]/g, "")}`, "aria-label": `${c.id} ${c.nombre}` },
+        h("header", {}, h("span", { class: "crit-id" }, c.id === "EX" ? "★" : c.id), h("h3", {}, c.nombre),
+          h("span", { class: "small muted" }, `${c.puntos ?? "–"} pt`)),
+        h("span", { class: `chip ${cls}` }, txt),
+        h("ul", { class: "evidencias" }, ev.map((x) => h("li", {}, marca(x.ok, "cumplido", "no cumplido"), h("span", {}, x.texto)))),
+        c.seccion ? h("a", { class: "btn btn-ghost btn-small", href: `#${c.seccion}`, "aria-label": `Ver la sección de ${c.id}` }, "Ver") : null);
+    }));
+  }
+
+  // ---- R7 · recorrido
+  function renderRecorrido(e) {
+    const ol = $("#recorrido-lista");
+    const pasos = Array.isArray(e.recorrido) ? e.recorrido : null;
+    if (!pasos) { ol.replaceChildren(h("li", { class: "muted" }, "Este nodo aún no informa el recorrido.")); return; }
+    ol.replaceChildren(...pasos.map((p, i) => h("li", { class: `paso ${p.hecho ? "paso-ok" : ""}` },
+      h("span", { class: "paso-num", "aria-hidden": "true" }, i + 1),
+      h("div", {}, h("strong", {}, p.texto, " ", p.hecho ? h("span", { class: "chip chip-ok" }, marca(true, "hecho"), "hecho") : h("span", { class: "chip chip-pend" }, "pendiente")),
+        p.detalle ? h("div", { class: "small muted" }, p.detalle) : null))));
+  }
+
+  // ---- R3 · clave
+  function renderClave(r) {
+    const c = $("#clave-contenido");
+    if (!r.ok) { c.replaceChildren(aviso(msgRuta(r, "La protección de la clave"))); return; }
+    const d = r.data, k = d.kdf || {}, ci = d.cifrado || {};
+    const mem = k.n && k.r ? 128 * k.n * k.r : null;
+    const memTxt = mem ? (mem >= 1048576 ? `${(mem / 1048576).toFixed(0)} MiB` : `${(mem / 1024).toFixed(0)} KiB`) : "–";
+    const fila = (a, b) => [h("dt", {}, a), h("dd", { class: "mono wrap" }, b)];
+    c.replaceChildren(h("dl", { class: "kv kv-plano" },
+      fila("Archivo", d.archivo ?? "–"), fila("Formato", `${d.formato ?? "–"} v${d.version ?? "?"}`),
+      fila("Derivación", `${k.alg ?? "scrypt"} · N=${k.n ?? "–"}, r=${k.r ?? "–"}, p=${k.p ?? "–"}`),
+      fila("Memoria aprox. (128·N·r)", memTxt),
+      fila("Cifrado", ci.alg ?? "AES-256-GCM"),
+      fila("Sal / nonce / texto cifrado", `${k.bytes_sal ?? "–"} B / ${ci.bytes_nonce ?? "–"} B / ${ci.bytes_texto_cifrado ?? "–"} B`),
+      fila("AAD", d.aad ?? "–"),
+      h("dt", {}, "Clave privada en claro en disco"), h("dd", {}, h("span", { class: `chip ${d.clave_en_claro_en_disco ? "chip-bad" : "chip-ok"}` }, d.clave_en_claro_en_disco ? "sí" : "no")),
+      h("dt", {}, "Estado"), h("dd", {}, h("span", { class: `chip ${d.desbloqueado ? "chip-ok" : "chip-warn"}` }, d.desbloqueado ? "desbloqueada (en memoria)" : "bloqueada")),
+      fila("Intentos fallidos", String(d.intentos_fallidos ?? 0)),
+      fila("Espera antes de reintentar", `${d.espera_s ?? 0} s`)));
+  }
+
+  // ---- R5 · consistencia y persistencia
+  function renderConsistencia(e) {
+    const c = $("#consistencia"), k = e.consistencia;
+    if (!k) { c.replaceChildren(h("p", { class: "muted small" }, "Este nodo aún no informa la consistencia de la red.")); return; }
+    const todos = k.con_mi_punta === k.nodos;
+    c.className = `consistencia ${todos ? "cons-ok" : "cons-dif"}`;
+    c.replaceChildren(h("p", { class: "small muted" }, "R5 · Consistencia de la red"),
+      h("p", { class: "cons-grande" }, h("span", { class: "mono" }, `${k.con_mi_punta}/${k.nodos}`), " nodos con la misma punta"),
+      h("p", { class: "small" }, todos ? "Todas las réplicas coinciden con mi cadena." : "Hay nodos atrasados o divergentes; se sincronizarán solos."));
+  }
+  function bytesTxt(b) { return typeof b !== "number" ? "–" : b > 1048576 ? `${(b / 1048576).toFixed(1)} MiB` : b > 1024 ? `${(b / 1024).toFixed(1)} KiB` : `${b} B`; }
+  function renderPersistencia(e) {
+    const p = e.nodo.persistencia, dl = $("#persistencia");
+    if (!p) { dl.replaceChildren(h("dt", {}, "Estado"), h("dd", { class: "muted" }, "Sin información.")); return; }
+    dl.replaceChildren(h("dt", {}, "Archivo"), h("dd", { class: "mono wrap" }, p.archivo_cadena || "–"),
+      h("dt", {}, "Tamaño"), h("dd", {}, bytesTxt(p.bytes)),
+      h("dt", {}, "Última escritura"), h("dd", {}, fecha(p.ultima_escritura)),
+      h("dt", {}, "Error"), h("dd", {}, p.error ? h("span", { class: "chip chip-bad" }, p.error) : h("span", { class: "chip chip-ok" }, "ninguno")));
+  }
+
+  // ---- R4 · consenso
+  function renderConsenso(e) {
+    const n = e.nodo, c = n.consenso || {};
+    if (c.regla) $("#consenso-regla").textContent = `Regla: ${c.regla}`;
+    $("#cons-dif").textContent = sinDato(n.dificultad_red) ? "variable (sin fijar)" : `${n.dificultad_red} ceros hex`;
+    const filas = [{ id: `${n.id} (yo)`, t: n.trabajo }, ...(e.pares || []).map((p) => ({ id: p.id, t: p.trabajo }))].filter((x) => typeof x.t === "number");
+    const max = Math.max(1, ...filas.map((x) => x.t));
+    $("#cons-trabajo").replaceChildren(...(filas.length ? filas.map((x) => {
+      const barra = h("div", { class: "barra-rel" }), rel = h("div", { class: "barra" }, barra);
+      barra.style.width = `${Math.max(2, Math.round((x.t / max) * 100))}%`;
+      return h("div", { class: "barra-fila" }, h("span", { class: "mono small" }, x.id), rel, h("span", { class: "mono small" }, num(x.t)));
+    }) : [h("p", { class: "muted small" }, "Sin datos de trabajo acumulado.")]));
+    $("#cons-contadores").replaceChildren(h("dt", {}, "Bloques rechazados"), h("dd", { class: "mono" }, num(c.bloques_rechazados)),
+      h("dt", {}, "Cadenas rechazadas"), h("dd", { class: "mono" }, num(c.cadenas_rechazadas)));
+    const rs = Array.isArray(c.reorganizaciones) ? c.reorganizaciones.slice().reverse() : [];
+    $("#reorg-count").textContent = rs.length;
+    $("#reorg-lista").replaceChildren(...(rs.length ? rs.map((r) => h("li", { class: "col" },
+      h("div", {}, h("strong", {}, `${r.altura_antes} → ${r.altura_despues}`), h("span", { class: "small muted" }, ` · ${hora(r.t)} · de ${r.de ?? "–"}`)),
+      h("div", { class: "mono small wrap" }, h("span", { title: r.punta_antes }, corto(r.punta_antes, 8)), " → ", h("span", { title: r.punta_despues }, corto(r.punta_despues, 8))),
+      h("div", { class: "small" }, `Bloques descartados: ${r.bloques_descartados ?? 0} · transacciones devueltas a pendientes: ${r.tx_devueltas ?? 0}`)))
+      : [h("li", { class: "empty" }, "Sin reorganizaciones: la cadena no ha tenido bifurcaciones.")]));
+  }
+
+  // ---- R2 · verificación de integridad
+  const TIPOS_SIM = [["transaccion", "Cambiar un dato de una transacción"], ["firma_tx", "Corromper la firma de una transacción"],
+    ["hash", "Alterar el hash del bloque"], ["enlace", "Romper el enlace con el bloque anterior"], ["merkle", "Alterar la raíz Merkle"],
+    ["firma_minero", "Falsificar la firma del minero"], ["multifirma", "Quitar una firma de un sello"], ["nonce", "Cambiar el nonce (prueba de trabajo)"]];
+  const COMP = [["hash", "Hash"], ["enlace", "Enlace"], ["merkle", "Merkle"], ["pow", "PoW"], ["firma_minero", "Firma del minero"], ["transacciones", "Transacciones"]];
+
+  function tablaMultifirma(m) {
+    const firmas = Array.isArray(m.firmas) ? m.firmas : [];
+    return h("div", { class: "mf-tabla" },
+      h("div", { class: "table-wrap" }, h("table", { class: "table" },
+        h("thead", {}, h("tr", {}, h("th", {}, "Autor"), h("th", {}, "Firmó"), h("th", {}, "Firma válida"))),
+        h("tbody", {}, (m.autores || []).map((a) => {
+          const f = firmas.find((x) => x.autor === a) || {};
+          return h("tr", { class: f.firmo && f.valida === false ? "row-bad" : "" }, h("td", { class: "mono" }, a), h("td", {}, marca(!!f.firmo, "firmó", "no firmó")), h("td", {}, f.firmo ? marca(!!f.valida) : marca(null)));
+        })))),
+      h("p", { class: "small" }, h("span", { class: `chip ${m.alcanzado ? "chip-ok" : "chip-bad"}` }, `${firmas.filter((f) => f.firmo && f.valida).length} de ${m.umbral} requeridas`), m.alcanzado ? " umbral alcanzado" : " umbral NO alcanzado"));
+  }
+
+  function detalleBloque(b) {
+    const txs = Array.isArray(b.transacciones) ? b.transacciones : [];
+    const partes = [];
+    if ((b.errores || []).length) partes.push(h("ul", { class: "errores" }, b.errores.map((x) => h("li", {}, String(x)))));
+    if (!txs.length) partes.push(h("p", { class: "muted small" }, "Sin transacciones."));
+    else partes.push(h("div", { class: "table-wrap" }, h("table", { class: "table" },
+      h("thead", {}, h("tr", {}, h("th", {}, "#"), h("th", {}, "Tipo"), h("th", {}, "Id"), h("th", {}, "Firma"), h("th", {}, "Resultado"))),
+      h("tbody", {}, txs.map((t) => h("tr", { class: t.ok === false ? "row-bad" : "" },
+        h("td", {}, t.indice), h("td", {}, t.tipo), h("td", { class: "mono", title: t.id }, corto(t.id, 12)), h("td", {}, marca(t.firma)), h("td", {}, marca(t.ok))))))));
+    for (const t of txs) if (t.multifirma) partes.push(h("div", { class: "mf-bloque" }, h("p", { class: "small" }, h("strong", {}, `Sello ${corto(t.id, 12)}`, " · multifirma")), tablaMultifirma(t.multifirma)));
+    return h("div", { class: "detalle-verif" }, partes);
+  }
+
+  function tablaVerificacion(d) {
+    const alt = d.alteracion;
+    const cuerpos = (d.bloques || []).map((b) => {
+      const det = h("tr", { class: "fila-detalle", hidden: true }, h("td", { colspan: 8 }, detalleBloque(b)));
+      const btn = h("button", { class: "btn btn-ghost btn-small", type: "button", "aria-expanded": "false", "aria-label": `Detalle del bloque ${b.numero}` }, "Detalle");
+      btn.addEventListener("click", () => { const abrir = det.hidden; det.hidden = !abrir; btn.setAttribute("aria-expanded", String(abrir)); btn.textContent = abrir ? "Ocultar" : "Detalle"; });
+      const comp = b.comprobaciones || {};
+      const tocado = alt && alt.bloque === b.numero;
+      return h("tbody", {}, h("tr", { class: b.ok === false ? "row-bad" : "" },
+        h("td", {}, h("strong", {}, `#${b.numero}`), " ", h("span", { class: "mono small", title: b.hash }, corto(b.hash, 8)), tocado ? h("span", { class: "chip chip-bad" }, "alterado") : null),
+        COMP.map(([k, nombre]) => h("td", { class: comp[k] === false ? "celda-mal" : "" }, marca(comp[k], `${nombre} correcto`, `${nombre} falla`))),
+        h("td", {}, btn)), det);
+    });
+    return h("div", { class: "table-wrap" }, h("table", { class: "table tabla-verif" },
+      h("caption", { class: "sr-only" }, "Comprobaciones por bloque"),
+      h("thead", {}, h("tr", {}, h("th", {}, "Bloque"), COMP.map(([, n]) => h("th", {}, n)), h("th", {}, h("span", { class: "sr-only" }, "Detalle")))),
+      cuerpos));
+  }
+
+  function renderVerificacion(r, simulada) {
+    const box = $("#verif-resultado"), d = r.data;
+    if (!r.ok) { box.replaceChildren(aviso(msgRuta(r, "La verificación"))); return; }
+    const partes = [];
+    if (simulada || d.copia_alterada) {
+      const a = d.alteracion || {};
+      partes.push(h("p", { class: "aviso-sim", role: "status" }, h("strong", {}, "Copia alterada: rechazada. Tu cadena real no cambió."),
+        a.descripcion ? ` ${a.descripcion}` : "", d.cadena_real_intacta === false ? " Atención: el servidor informa que la cadena cambió." : ""));
+    }
+    partes.push(h("p", { class: "verif-global" }, h("span", { class: `chip ${d.valida ? "chip-ok" : "chip-bad"}` }, d.valida ? "cadena válida" : "no válida"),
+      h("span", { class: "small muted" }, ` ${typeof d.duracion_ms === "number" ? `${d.duracion_ms} ms` : ""} · ${(d.bloques || []).length} bloques`),
+      d.primer_error ? h("span", { class: "small" }, ` · primer error: ${typeof d.primer_error === "string" ? d.primer_error : JSON.stringify(d.primer_error)}`) : null));
+    partes.push(tablaVerificacion(d));
+    box.replaceChildren(...partes);
+  }
+
+  // ---- R6 · pasos del certificado y camino Merkle
+  function pasosCertificado(pasos) {
+    if (!Array.isArray(pasos) || !pasos.length) return null;
+    return h("div", {}, h("h3", { class: "subhead" }, "Pasos de la verificación"),
+      h("ol", { class: "pasos-cert" }, pasos.map((p) => h("li", {}, marca(p.ok, "correcto", "falló"), h("strong", {}, p.paso), h("span", { class: "small muted" }, ` ${p.detalle || ""}`)))));
+  }
+  function nodoHash(rol, hash) {
+    return h("span", { class: "mk-nodo" }, h("span", { class: "small muted" }, rol), h("span", { class: "mono", title: hash }, corto(hash, 10)));
+  }
+  function diagramaMerkle(m) {
+    if (!m || !m.hoja) return null;
+    const camino = Array.isArray(m.camino) ? m.camino : [];
+    let actual = m.hoja;
+    const filas = camino.map((p, i) => {
+      const izq = /^(i|l)/i.test(String(p.lado));
+      const par = nodoHash(`hermano (${izq ? "izquierda" : "derecha"})`, p.hash);
+      const prev = nodoHash(i === 0 ? "hoja" : "acumulado", actual);
+      actual = p.resultado;
+      return h("li", { class: "mk-paso" }, h("span", { class: "mk-comb" }, izq ? [par, prev] : [prev, par]),
+        h("span", { class: "mk-flecha", "aria-hidden": "true" }, "→"), nodoHash(`paso ${i + 1}`, p.resultado));
+    });
+    return h("div", { class: "merkle" }, h("h3", { class: "subhead" }, "Camino Merkle: hoja → raíz del bloque"),
+      h("ol", { class: "mk" }, camino.length ? filas : [h("li", { class: "small muted" }, "Un solo elemento: la hoja es la raíz.")]),
+      h("p", { class: "mk-raiz" }, nodoHash("hoja (hash de la transacción)", m.hoja), h("span", { class: "mk-flecha", "aria-hidden": "true" }, "⇒"),
+        nodoHash("raíz del bloque", m.raiz), actual === m.raiz ? marca(true, "coincide con la raíz") : marca(false, "no coincide", "no coincide con la raíz")));
+  }
+
+  $("#in-sim-tipo").replaceChildren(...TIPOS_SIM.map(([v, t]) => h("option", { value: v }, t)));
+  $("#btn-auditar").addEventListener("click", async (ev) => {
+    const btn = ev.currentTarget; btn.disabled = true;
+    const r = await api("/verificacion");
+    btn.disabled = false;
+    renderVerificacion(r, false); refrescarRubrica();
+  });
+  $("#form-simular").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const btn = $("#btn-simular"); btn.disabled = true;
+    const r = await api("/verificacion/simular", { metodo: "POST", json: { tipo: $("#in-sim-tipo").value, bloque: Number($("#in-sim-bloque").value) } });
+    btn.disabled = false;
+    renderVerificacion(r, true);
+    if (!r.ok) toast(msgRuta(r, "La simulación"), "error");
+    refrescarRubrica();
+  });
+
+  // ---- ★ Auditoría con IA
+  const aud = { hallazgos: [] };
+  function contar(arr, campo) { const m = {}; arr.forEach((x) => { const k = x[campo] || "–"; m[k] = (m[k] || 0) + 1; }); return m; }
+  function llenarSelect(sel, valores, todos) {
+    const previo = sel.value;
+    sel.replaceChildren(h("option", { value: "" }, todos), ...[...new Set(valores)].filter(Boolean).sort().map((v) => h("option", { value: v }, v)));
+    sel.value = previo;
+  }
+  function chipsConteo(titulo, mapa, claseDe) {
+    return h("div", { class: "aud-grupo" }, h("h3", { class: "subhead" }, titulo),
+      h("div", { class: "chips" }, Object.entries(mapa).map(([k, v]) => h("span", { class: `chip ${claseDe(k)}` }, `${k}: ${v}`))));
+  }
+  const claseEstado = (k) => (/corregido|resuelto/.test(k) ? "chip-ok" : /justificado/.test(k) ? "" : "chip-warn");
+  const claseSev = (k) => (/cr[ií]tic|alta/i.test(k) ? "chip-bad" : /media/i.test(k) ? "chip-warn" : "");
+  function pintarAuditoria() {
+    const f = { e: $("#aud-f-estado").value, s: $("#aud-f-sev").value, g: $("#aud-f-grupo").value, t: $("#aud-f-texto").value.trim().toLowerCase() };
+    const fil = aud.hallazgos.filter((x) => (!f.e || x.estado === f.e) && (!f.s || x.severidad === f.s) && (!f.g || x.grupo === f.g)
+      && (!f.t || [x.id, x.titulo, x.categoria, (x.commits || []).join(" "), x.prueba].join(" ").toLowerCase().includes(f.t)));
+    $("#aud-cuenta").textContent = `${fil.length} de ${aud.hallazgos.length} hallazgos`;
+    $("#aud-cuerpo").replaceChildren(...(fil.length ? fil.map((x) => h("tr", {},
+      h("td", { class: "mono" }, x.id), h("td", {}, x.titulo), h("td", {}, h("span", { class: `chip ${claseSev(x.severidad || "")}` }, x.severidad || "–")),
+      h("td", {}, x.decision || "–"), h("td", {}, h("span", { class: `chip ${claseEstado(x.estado || "")}` }, String(x.estado || "–").replace(/_/g, " "))),
+      h("td", { class: "mono small" }, (x.commits || []).map((c) => corto(c, 8)).join(", ") || "–"),
+      h("td", { class: "mono small wrap" }, x.prueba || "–")))
+      : [h("tr", {}, h("td", { colspan: 7, class: "muted" }, "Ningún hallazgo coincide con el filtro."))]));
+  }
+  async function cargarAuditoria() {
+    const r = await api("/auditoria");
+    const av = $("#aud-aviso");
+    if (!r.ok) {
+      av.replaceChildren(aviso(r.status === 409 ? "La auditoría aún no está generada: falta docs/auditoria/estado.json (ejecuta scripts/estado_auditoria.py)." : msgRuta(r, "La auditoría")));
+      $("#aud-resumen").replaceChildren(); $("#aud-filtros").hidden = true; $("#aud-tabla-wrap").hidden = true; $("#aud-cuenta").textContent = "";
+      return;
+    }
+    av.replaceChildren();
+    aud.hallazgos = Array.isArray(r.data.hallazgos) ? r.data.hallazgos : [];
+    const res = r.data.resumen || {};
+    $("#aud-resumen").replaceChildren(h("p", { class: "small" }, h("strong", {}, `${res.total ?? aud.hallazgos.length} hallazgos`), r.data.generado ? ` · generado ${r.data.generado}` : ""),
+      chipsConteo("Por estado", res.por_estado || contar(aud.hallazgos, "estado"), claseEstado),
+      chipsConteo("Por severidad", res.por_severidad || contar(aud.hallazgos, "severidad"), claseSev));
+    llenarSelect($("#aud-f-estado"), aud.hallazgos.map((x) => x.estado), "Todos");
+    llenarSelect($("#aud-f-sev"), aud.hallazgos.map((x) => x.severidad), "Todas");
+    llenarSelect($("#aud-f-grupo"), aud.hallazgos.map((x) => x.grupo), "Todos");
+    $("#aud-filtros").hidden = false; $("#aud-tabla-wrap").hidden = false;
+    pintarAuditoria();
+  }
+  $("#aud-filtros").addEventListener("input", pintarAuditoria);
+  $("#aud-filtros").addEventListener("submit", (ev) => ev.preventDefault());
+  $("#btn-aud-recargar").addEventListener("click", cargarAuditoria);
+
+  // ---- R8 · entrega
+  async function cargarEntrega() {
+    const r = await api("/entrega"), c = $("#entrega-contenido");
+    if (!r.ok) { c.replaceChildren(aviso(msgRuta(r, "La entrega"))); return; }
+    const ent = Array.isArray(r.data.entregables) ? r.data.entregables : [];
+    c.replaceChildren(h("ul", { class: "entregables" }, ent.map((x) => h("li", {}, marca(x.existe, "existe", "pendiente"),
+      h("div", {}, h("strong", {}, x.nombre), " ", h("span", { class: `chip ${x.existe ? "chip-ok" : "chip-pend"}` }, x.existe ? "existe" : "pendiente"),
+        h("div", { class: "small muted" }, h("span", { class: "mono" }, x.archivo || ""), x.detalle ? ` · ${x.detalle}` : ""))))));
+  }
+
+  cargarAuditoria();
+  cargarEntrega();
   ciclo();
 })();
+
