@@ -182,6 +182,28 @@
       </div>
       <span class="badge badge-idle" id="minado-badge">detenido</span>
     </div>
+    <div class="panel-dif" id="panel-dificultad" role="group" aria-labelledby="t-dif">
+      <h3 class="subhead" id="t-dif">Dificultad de la red</h3>
+      <p id="dif-sin-fija" class="muted" hidden>Esta red no fija la dificultad en el génesis: cada minero la elige al iniciar el minado, así que no hay nada que ajustar por acuerdo.</p>
+      <div id="dif-contenido">
+        <p class="dif-linea"><strong class="dif-num" id="dif-vigente">–</strong> <span>ceros hex vigentes</span> <span class="muted small" id="dif-genesis"></span></p>
+        <p class="small muted" id="dif-tiempo" aria-live="polite"></p>
+        <form id="form-dif" class="form dif-form" autocomplete="off">
+          <label>Nueva dificultad
+            <select id="in-dif-nueva" name="dificultad" aria-describedby="dif-nueva-tiempo">
+              <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+              <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+            </select></label>
+          <button class="btn" type="submit" id="btn-dif-proponer">Proponer ajuste</button>
+        </form>
+        <p class="small muted" id="dif-nueva-tiempo"></p>
+        <p class="small muted" id="dif-ayuda"></p>
+        <h4 class="subhead">Propuestas en firma <span class="count" id="dif-firma-count">0</span></h4>
+        <ul class="tx-list compact" id="dif-en-firma"></ul>
+        <h4 class="subhead">Ajustes aplicados <span class="count" id="dif-hist-count">0</span></h4>
+        <ul class="tx-list compact" id="dif-historial"></ul>
+      </div>
+    </div>
     <div class="grid-2 inner-grid">
       <div>
         <h3 class="subhead">Pendientes <span class="count" id="pend-count">0</span></h3>

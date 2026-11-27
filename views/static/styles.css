@@ -537,3 +537,11 @@ a.vista-tab:hover { background: rgba(255, 255, 255, .18); }
 .atq-desc { display: block; overflow-wrap: anywhere; }
 .atq-lateral { min-width: 0; }
 .atq-tabla th, .atq-tabla td { overflow-wrap: anywhere; }
+
+/* Dificultad de la red (C9) */
+.panel-dif { margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.panel-dif .dif-linea { margin: 4px 0; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.panel-dif .dif-num { font-size: 1.6rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.panel-dif .dif-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin: 8px 0 4px; }
+.panel-dif .dif-form select { min-width: 5rem; }
+.panel-dif .subhead { margin-top: 12px; }

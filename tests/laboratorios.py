@@ -12,8 +12,9 @@ CONTRASENA = "contrasena-de-prueba-123"   # fixture de prueba: no protege ningun
 IDS = ("LAB-A", "LAB-B", "LAB-C")
 
 
-def crear_laboratorios(carpeta, ids=IDS, saldo: int = 100):
-    """Devuelve (genesis, rutas, claves): rutas del almacén de cada id y su ParClaves ya abierto."""
+def crear_laboratorios(carpeta, ids=IDS, saldo: int = 100, dificultad: int | None = None):
+    """Devuelve (genesis, rutas, claves): rutas del almacén de cada id y su ParClaves ya abierto.
+    Con `dificultad` el génesis la fija (AUD-004) y la red admite ajustes co-firmados (C9)."""
     rutas, claves, cuentas = {}, {}, {}
     for nid in ids:
         rutas[nid] = os.path.join(str(carpeta), nid, "clave.json")
@@ -21,6 +22,8 @@ def crear_laboratorios(carpeta, ids=IDS, saldo: int = 100):
         claves[nid] = abrir_almacen(rutas[nid], CONTRASENA)
         cuentas[nid] = {"clave_publica": publica, "saldo": saldo}
     parametros = {"consenso": "pow", "recompensa": 10, "confirmaciones": 6, "red": "sellalo", "nombre": "prueba"}
+    if dificultad is not None:
+        parametros["dificultad"] = dificultad
     genesis = crear_genesis(cuentas, parametros, time.time() - 1000)
     return genesis, rutas, claves
 

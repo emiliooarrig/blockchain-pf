@@ -6,7 +6,7 @@
   const { $, h, corto, fecha, hora, num, lista, mostrar, hashCeros, toast, api, marca, msgRuta, aviso, renderEncabezado: encabezadoComun } = window.Sellalo;
 
   // ---------------------------------------------------------------- estado de la interfaz
-  const ui = { est: null, ocupados: new Set(), abiertos: new Set(), detalles: new Map(), hashPrio: "",
+  const ui = { est: null, clavesDif: "", ocupados: new Set(), abiertos: new Set(), detalles: new Map(), hashPrio: "",
                clavesAutores: "", clavesBloques: "", clavesBitacora: "", tiposBitacora: new Set(),
                limitesAplicados: false };
 
@@ -149,10 +149,77 @@
     $("#enfirma").replaceChildren(...(mios.length ? mios : [h("li", { class: "empty" }, "No tienes sellos esperando firmas.")]));
   }
 
+  // ---- dificultad de la red (C9): vigente, estimación de tiempo, propuestas en firma e historial de ajustes
+  function duracion(s) {
+    if (!isFinite(s)) return "un tiempo enorme";
+    if (s < 1) return "menos de 1 s";
+    if (s < 90) return `${Math.round(s)} s`;
+    if (s < 5400) return `${Math.round(s / 60)} min`;
+    if (s < 129600) return `${(s / 3600).toFixed(1).replace(".", ",")} h`;
+    return `${num(Math.round(s / 86400))} días`;
+  }
+  function tiempoEsperado(d, hs) {
+    const hashes = 16 ** d;
+    const base = `~16^${d} = ${num(hashes)} hashes por bloque`;
+    return hs > 0 ? `${base} (≈ ${duracion(hashes / hs)} a ${num(Math.round(hs))} hashes/s)`
+      : `${base}; inicia el minado para estimar los segundos con la velocidad de esta PC`;
+  }
+  function renderDificultad(e) {
+    const d = e.dificultad;
+    if (!d) return;
+    const fija = d.vigente != null;
+    mostrar($("#dif-sin-fija"), !fija);
+    mostrar($("#dif-contenido"), fija);
+    if (!fija) return;
+    const hs = Number((e.nodo.estadisticas || {}).hashes_por_s) || 0;
+    $("#dif-vigente").textContent = String(d.vigente);
+    $("#dif-genesis").textContent = d.genesis !== d.vigente ? `(génesis: ${d.genesis})` : "(la del génesis)";
+    $("#dif-tiempo").textContent = `Tiempo esperado por bloque: ${tiempoEsperado(d.vigente, hs)}.`;
+    const sel = $("#in-dif-nueva");
+    if (!sel.dataset.listo) {
+      sel.dataset.listo = "1";
+      sel.value = String(Math.min(d.maximo, d.vigente + 1 <= d.maximo ? d.vigente + 1 : d.vigente - 1));
+      sel.addEventListener("change", () => renderDificultad(ui.est));
+    }
+    const nueva = Number(sel.value);
+    $("#dif-nueva-tiempo").textContent = nueva === d.vigente ? "Elige una dificultad distinta de la vigente."
+      : `Con ${nueva}: ${tiempoEsperado(nueva, hs)}.`;
+    $("#dif-ayuda").textContent = `Un ajuste necesita la firma de más de la mitad de los laboratorios (${d.umbral} de ${d.laboratorios.length}); `
+      + "una vez firmado se mina como cualquier transacción y rige desde el bloque siguiente.";
+    const prop = $("#btn-dif-proponer");
+    prop.dataset.motivo = nueva === d.vigente ? "La dificultad elegida ya es la vigente." : "";
+    ponerDeshabilitado("btn-dif-proponer", "Desbloquea el nodo para firmar el ajuste.", prop.dataset.motivo);
+    const clave = JSON.stringify([d.vigente, d.en_firma, d.ajustes, bloqueado()]);
+    if (clave === ui.clavesDif) return;
+    ui.clavesDif = clave;
+    $("#dif-firma-count").textContent = d.en_firma.length;
+    const filas = d.en_firma.map((a) => {
+      const partes = [h("span", {}, h("strong", {}, `${d.vigente} → ${a.dificultad}`), h("span", { class: "small muted" }, ` · propone ${a.proponente}`)),
+        h("span", { class: "chip" }, `${a.firmas.length}/${a.umbral} firmas`),
+        h("span", { class: "small muted" }, `Firmaron: ${a.firmas.join(", ") || "nadie"}`)];
+      if (!a.firmado_por_mi) {
+        const btn = h("button", { class: "btn btn-small", type: "button" }, "Firmar");
+        if (bloqueado()) { btn.disabled = true; btn.title = "Desbloquea el nodo para firmar."; }
+        btn.setAttribute("aria-label", `Firmar el ajuste de dificultad ${d.vigente} a ${a.dificultad}`);
+        btn.addEventListener("click", () => { btn.disabled = true; enviar(null, `/dificultad/${encodeURIComponent(a.id)}/firmar`, { metodo: "POST", json: {} }); });
+        partes.push(btn);
+      }
+      return h("li", { class: "col" }, partes);
+    });
+    $("#dif-en-firma").replaceChildren(...(filas.length ? filas : [h("li", { class: "empty" }, "No hay propuestas esperando firmas.")]));
+    $("#dif-hist-count").textContent = d.ajustes.length;
+    const hist = d.ajustes.slice().reverse().map((a) => h("li", { class: "col" },
+      h("span", {}, h("strong", {}, `${a.dificultad_anterior} → ${a.dificultad}`), h("span", { class: "small muted" }, ` · en el bloque #${a.numero}, rige desde el #${a.numero + 1}`)),
+      h("span", { class: "small muted" }, `Propuso ${a.proponente} · firmaron ${a.firmantes.join(", ")}`)));
+    $("#dif-historial").replaceChildren(...(hist.length ? hist : [h("li", { class: "empty" }, "Todavía no se ha ajustado la dificultad.")]));
+  }
+
   function renderMinado(e) {
     const n = e.nodo, st = n.estadisticas || {};
     $("#pend-count").textContent = n.pendientes.length;
-    const pend = n.pendientes.map((p) => (p.tipo === "sello"
+    const pend = n.pendientes.map((p) => (p.tipo === "ajuste_dificultad"
+      ? h("li", {}, h("span", {}, h("span", { class: "chip chip-warn" }, "ajuste"), ` dificultad → ${p.dificultad}`), h("span", { class: "small muted" }, `${p.proponente} · ${p.firmas} firmas`))
+      : p.tipo === "sello"
       ? h("li", {}, h("span", {}, h("span", { class: "chip" }, "sello"), ` ${p.titulo}`), h("span", { class: "small muted" }, `${p.laboratorio} · `), vistaMultifirma(p, true))
       : h("li", {}, h("span", {}, h("span", { class: "chip chip-warn" }, "transferencia"), ` ${p.emisor} → ${p.receptor}`), h("span", { class: "mono" }, `${p.monto} cr.`))));
     $("#pendientes").replaceChildren(...(pend.length ? pend : [h("li", { class: "empty" }, "No hay pendientes.")]));
@@ -170,6 +237,13 @@
 
   // ---- cadena
   function txDetalle(tx) {
+    if (tx && tx.tipo === "ajuste_dificultad") {
+      const firmantes = Object.keys(tx.firmas || {}).sort();
+      return h("div", { class: "entry" },
+        h("span", { class: "chip chip-warn" }, "ajuste de dificultad"), " ", h("strong", {}, `nueva dificultad ${tx.dificultad}`),
+        h("div", {}, `Propuso ${tx.proponente} · firmaron ${firmantes.join(", ")} (${firmantes.length})`),
+        h("div", { class: "small muted" }, "Rige desde el bloque siguiente."));
+    }
     if (tx && tx.doc_hash) {
       return h("div", { class: "entry" },
         h("span", { class: "chip" }, "sello"), " ", h("strong", {}, tx.titulo), h("span", { class: "muted" }, ` · ${tx.investigador}`),
@@ -259,7 +333,7 @@
 
   function render(e) {
     renderEncabezado(e); renderBanda(e); renderRed(e); renderFormularios(e); renderFirmas(e);
-    renderMinado(e); renderCadena(e); renderCuentas(e); renderBitacora(e); renderBotones(e);
+    renderDificultad(e); renderMinado(e); renderCadena(e); renderCuentas(e); renderBitacora(e); renderBotones(e);
     renderConsistencia(e); renderPersistencia(e); renderConsenso(e);
   }
 
@@ -287,6 +361,11 @@
   document.addEventListener("visibilitychange", () => { if (!document.hidden) actualizar(); });
 
   // ---------------------------------------------------------------- formularios
+  $("#form-dif").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    enviar($("#btn-dif-proponer"), "/dificultad/proponer", { metodo: "POST", json: { dificultad: Number($("#in-dif-nueva").value) } });
+  });
+
   $("#form-desbloquear").addEventListener("submit", (ev) => {
     ev.preventDefault();
     const campo = $("#in-contrasena");
@@ -533,6 +612,18 @@
       h("p", { class: "small" }, h("span", { class: `chip ${m.alcanzado ? "chip-ok" : "chip-bad"}` }, `${firmas.filter((f) => f.firmo && f.valida).length} de ${m.umbral} requeridas`), m.alcanzado ? " umbral alcanzado" : " umbral NO alcanzado"));
   }
 
+  function tablaAjuste(a) {
+    const firmas = Array.isArray(a.firmas) ? a.firmas : [];
+    const validas = firmas.filter((f) => f.firmo && f.valida).length;
+    return h("div", { class: "mf-tabla" },
+      h("div", { class: "table-wrap" }, h("table", { class: "table" },
+        h("thead", {}, h("tr", {}, h("th", {}, "Laboratorio"), h("th", {}, "Firmó"), h("th", {}, "Firma válida"))),
+        h("tbody", {}, firmas.map((f) => h("tr", { class: f.firmo && f.valida === false ? "row-bad" : "" },
+          h("td", { class: "mono" }, f.autor), h("td", {}, marca(!!f.firmo, "firmó", "no firmó")), h("td", {}, f.firmo ? marca(!!f.valida) : marca(null)))))),
+      h("p", { class: "small" }, h("span", { class: `chip ${a.alcanzado ? "chip-ok" : "chip-bad"}` }, `${validas} de ${a.necesarias} necesarias`), a.alcanzado ? " mayoría alcanzada" : " mayoría NO alcanzada",
+        h("span", { class: "small muted" }, ` · dificultad ${a.dificultad_anterior ?? "–"} → ${a.dificultad}`))));
+  }
+
   function detalleBloque(b) {
     const txs = Array.isArray(b.transacciones) ? b.transacciones : [];
     const partes = [];
@@ -542,6 +633,7 @@
       h("thead", {}, h("tr", {}, h("th", {}, "#"), h("th", {}, "Tipo"), h("th", {}, "Id"), h("th", {}, "Firma"), h("th", {}, "Resultado"))),
       h("tbody", {}, txs.map((t) => h("tr", { class: t.ok === false ? "row-bad" : "" },
         h("td", {}, t.indice), h("td", {}, t.tipo), h("td", { class: "mono", title: t.id }, corto(t.id, 12)), h("td", {}, marca(t.firma)), h("td", {}, marca(t.ok))))))));
+    for (const t of txs) if (t.ajuste) partes.push(h("div", { class: "mf-bloque" }, h("p", { class: "small" }, h("strong", {}, `Ajuste de dificultad ${corto(t.id, 12)}`, " · mayoría")), tablaAjuste(t.ajuste)));
     for (const t of txs) if (t.multifirma) partes.push(h("div", { class: "mf-bloque" }, h("p", { class: "small" }, h("strong", {}, `Sello ${corto(t.id, 12)}`, " · multifirma")), tablaMultifirma(t.multifirma)));
     return h("div", { class: "detalle-verif" }, partes);
   }
