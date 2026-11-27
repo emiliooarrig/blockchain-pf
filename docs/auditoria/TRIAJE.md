@@ -7,7 +7,7 @@
 > `auditoria-inicio` y luego lo corrige; si no se puede reproducir, lo marca como falso positivo con evidencia.
 > Detalle de cada hallazgo en [HALLAZGOS.md](HALLAZGOS.md).
 
-Leyenda: **C** corregir · **CP** corregir parcialmente (se indica qué queda) · **NA** no aplicar (justificación) · **D** documentar como limitación.
+Leyenda: **C** corregir · **CP** corregir parcialmente (se indica qué queda) · **RE** resuelto por eliminación (el código afectado ya no existe) · **NA** no aplicar (justificación) · **D** documentar como limitación.
 
 ## G1 · red (`red_p2p.py`, `nodo_completo.py`, `coordinador_sellos.py`)
 
@@ -51,12 +51,12 @@ Leyenda: **C** corregir · **CP** corregir parcialmente (se indica qué queda) �
 |---|---|---|
 | AUD-004 | C | El génesis de la red Sellalo fija `parametros.dificultad`; todo bloque debe usar exactamente esa dificultad (el minero ya no la elige). `inicializar_red.py --dificultad` (por defecto 4). El simulador conserva la dificultad configurable que pide la guía. El límite residual (51 % del trabajo) se documenta. |
 | AUD-005 | C | Sin `--genesis` el verificador no concluye "VÁLIDO" (resultado "no concluyente", código 3); el endpoint web sólo marca válido si el génesis es el de la red del nodo. |
-| AUD-006 | C | El comité PoS debe ser derivable: todos los nodos con saldo o el subconjunto reproducible determinado por `hash_anterior|numero` y `tam_comite` registrado; apuestas `0 < a ≤ saldo`. |
-| AUD-007 | C | Cada castigo/excluido debe traer la **prueba de fraude**: el candidato rechazado firmado por su proponente, que al revalidarse resulta inválido. Sin prueba, el bloque se rechaza. |
+| AUD-006 | RE | **Resuelto por eliminación:** se eliminó PoS del sistema el 2026-11-27; el código afectado ya no existe. (Decisión original: el comité PoS debía ser derivable de `hash_anterior|numero` y `tam_comite`.) |
+| AUD-007 | RE | **Resuelto por eliminación:** se eliminó PoS del sistema el 2026-11-27; el código afectado ya no existe. (Decisión original: cada castigo/excluido debía traer la prueba de fraude firmada.) |
 | AUD-018 | C | Regla de *mediana de tiempo pasado* (11 bloques): el timestamp debe ser ≥ la mediana de los anteriores; en la red Sellalo además ≤ ahora + 120 s al recibir. |
 | AUD-019 | C | El verificador exige números finitos, timestamps no decrecientes respecto a la mediana y ≥ génesis. |
 | AUD-020 | CP | El verificador muestra las confirmaciones y acepta `--min-confirmaciones` (advertencia si < 6). Emitir con 0 confirmaciones se permite pero queda indicado. |
-| AUD-021 | C | Tipos estrictos (`type(x) is int`) en `intento`, `monto` y apuestas. |
+| AUD-021 | CP | **Corregido parcialmente / resto resuelto por eliminación:** `intento` y las apuestas eran exclusivas de PoS, que se eliminó el 2026-11-27 (el código afectado ya no existe). Queda `monto` en las transferencias PoW, que ya se valida con tipo estricto (`es_entero`: `type(x) is int`, rechaza `bool` y `float`) en `revisar_transaccion` y lo cubre `test_transferencias_con_monto_invalido`. |
 | AUD-022 | C | `es_numero` sin `OverflowError`; `validar_cadena` convierte cualquier error de tipo/valor en `ErrorValidacion`. |
 | AUD-038 | C | `RecursionError` capturado en almacén de claves y verificador. |
 | AUD-039 | C | Tope de memoria de scrypt aceptado (`128·N·r ≤ 64 MiB`, `p ≤ 2`) y comentario corregido. |
@@ -72,7 +72,7 @@ Leyenda: **C** corregir · **CP** corregir parcialmente (se indica qué queda) �
 
 | ID | Decisión | Qué se hace |
 |---|---|---|
-| AUD-023 | NA | Las reglas de pendientes difieren a propósito (en el simulador el saldo comprometido incluye apuestas PoS; en la red, sellos sin saldo). Se comparten las constantes (AUD-055). |
+| AUD-023 | NA | Las reglas de pendientes difieren a propósito (en el simulador el saldo comprometido incluía apuestas PoS, ya eliminadas; en la red, sellos sin saldo). Se comparten las constantes (AUD-055). |
 | AUD-024 | C | Una sola función de copia JSON pura en `models/cripto.py`. |
 | AUD-047 | NA | Duplicación intencional: el verificador es independiente por contrato (C6); `merkle.verificar_camino` es la implementación de referencia que la prueba de compatibilidad contrasta con él. |
 | AUD-048 | C | Se le da consumidor: `scripts/cambiar_contrasena.py`. |
@@ -91,7 +91,7 @@ Leyenda: **C** corregir · **CP** corregir parcialmente (se indica qué queda) �
 | AUD-061 | C | `demo_e2e` cierra procesos en cualquier error. |
 | AUD-062 | C | Paso 8 de la demo compara la bitácora antes/después y espera por sondeo. |
 
-**Resumen:** 62 hallazgos → C 52 · CP 3 · NA 5 · D 2 (los "D" y "NA" quedan justificados arriba y en el reporte final).
+**Resumen:** 62 hallazgos → C 49 · CP 4 · RE 2 · NA 5 · D 2 (los "D" y "NA" quedan justificados arriba y en el reporte final).
 
 **Desviación del plan:** el verificador adversarial (AU6) se integró en cada corrector (reproducir con una prueba que falla
 antes de corregir), para ahorrar una pasada completa; la verificación independiente de cierre (P5) se mantiene.

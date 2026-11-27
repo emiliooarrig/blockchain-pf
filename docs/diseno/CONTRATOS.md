@@ -2,6 +2,9 @@
 
 > Fase 0 del [plan](../PLAN_PROYECTO_FINAL.md). Todos los subagentes implementan **contra este documento**.
 > Cambiar un contrato requiere avisar al orquestador; no se cambia en silencio.
+>
+> **2026-11-27: se eliminó Proof of Stake; el único consenso es PoW.** Desaparecieron `CAMPOS_POS`, `models/pos.py`
+> y todo lo relativo a comité, votos, apuestas y castigos; el génesis sólo acepta `consenso == "pow"`.
 
 Convenciones: código, identificadores y mensajes en **español**; mensajes de error claros (se muestran en la UI);
 errores de entrada → `ErrorEntrada` (HTTP 400), acción fuera de estado → `ErrorEstado` (HTTP 409),
@@ -9,7 +12,7 @@ datos de red/cadena inválidos → `ErrorValidacion`. Nunca un traceback ni un 5
 
 ---
 
-## C1 · Bloque v2 (simulador y red Sellalo)
+## C1 · Bloque v2 (simulador y red Sellalo, sólo PoW)
 
 ### Hash del bloque
 
@@ -33,15 +36,12 @@ def hash_bloque(b):
 |---|---|
 | `CAMPOS_COMUNES` | `numero, timestamp, transacciones, hash_anterior, raiz_merkle, nonce, proponente, recompensa, hash` |
 | `CAMPOS_POW` | comunes + `dificultad, firma_minero` |
-| `CAMPOS_POS` | comunes + `validadores, intento, excluidos, castigos, firma_proponente, votos` (sin cambios de semántica) |
 | `CAMPOS_GENESIS` | comunes + `cuentas, parametros` (raíz de Merkle de la lista vacía) |
 
 - `raiz_merkle == merkle.raiz_transacciones(bloque["transacciones"])`; si no, `ErrorValidacion("la raíz de Merkle no coincide con las transacciones")`.
-- **`firma_minero`** (sólo PoW) = `claves_del_proponente.firmar(bytes.fromhex(bloque["hash"]))` (hex de 128).
+- **`firma_minero`** = `claves_del_proponente.firmar(bytes.fromhex(bloque["hash"]))` (hex de 128).
   Se verifica con `estado.claves[proponente]`. Se firma **después** de encontrar el nonce (por eso no entra al hash).
   `verificar_pow(estado, bloque)` recibe ahora el estado.
-- PoS: `mensaje_propuesta` sigue excluyendo `hash, votos, firma_proponente`; ahora también excluye `transacciones`
-  sólo si así se decide en A1 — **por defecto se deja igual** (las transacciones siguen firmadas por el proponente).
 - `parametros` del génesis acepta además `"red": "simulador" | "sellalo"` y `"nombre": str` (opcionales en el simulador).
 
 ## C2 · Merkle (`models/merkle.py`, YA implementado en fase 0)
@@ -245,7 +245,7 @@ class ServidorP2P:
 
 ### Arranque
 
-- `python app.py` / `flask run` → **modo simulador** (como hoy; `/` es el simulador PoW/PoS).
+- `python app.py` / `flask run` → **modo simulador** (como hoy; `/` es el simulador PoW).
 - `python app.py --modo nodo --nodo LAB-A --datos data/demo/LAB-A --genesis data/demo/genesis.json --puerto 5001 --puerto-p2p 6001 --pares 127.0.0.1:6002,127.0.0.1:6003 [--host 127.0.0.1] [--clave data/demo/LAB-A/clave.json]`
   → **modo nodo**: `/` es la página Sellalo (`views/templates/sellalo.html`), `/simulador` el simulador.
   La clave por defecto es `<datos>/clave.json`. El nodo arranca **bloqueado**; al desbloquearse inicia el `ServidorP2P`

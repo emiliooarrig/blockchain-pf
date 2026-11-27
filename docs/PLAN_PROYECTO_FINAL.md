@@ -8,9 +8,13 @@
 
 ## 0. Decisiones tomadas
 
+> **2026-11-27: se eliminó Proof of Stake de todo el sistema; el único consenso es Proof of Work** (simulador y red
+> Sellalo). Se retiraron `models/pos.py`, la pestaña V2 del simulador, sus rutas y sus pruebas. Donde este plan
+> menciona PoS (código base, laboratorio de consenso, R4, M-5) describe el punto de partida o lo descartado.
+
 | Tema | Decisión |
 |---|---|
-| Código base | **Fusionar**: partir de `origin/medi-termino` (Sellalo: PoW + PoS, Ed25519, 174 pruebas, validación completa) y **portar la capa TCP/IP de `main`** (LabChain) para que la cadena se replique en procesos/PCs reales. |
+| Código base | **Fusionar**: partir de `origin/medi-termino` (Sellalo: PoW + PoS en ese momento, Ed25519, 174 pruebas, validación completa) y **portar la capa TCP/IP de `main`** (LabChain) para que la cadena se replique en procesos/PCs reales. |
 | Técnica adicional | **Multifirma k-de-n** aplicada a la co-autoría de un sello. |
 | Problema a resolver | **Sellado de prioridad científica**: un laboratorio registra el hash de un documento, sus co-autores lo firman y la red lo sella con fecha verificable. Deja de ser “solo visual” (como en el medio término). |
 | Agregado particular | **Certificado de prioridad verificable offline**: archivo con prueba de inclusión Merkle + encabezados de bloque, que un script independiente verifica sin confiar en ningún nodo. |
@@ -18,9 +22,9 @@
 ### Arquitectura resultante (dos modos en la misma aplicación)
 
 1. **Red Sellalo (producto final):** cada proceso es un **nodo completo** (un laboratorio) con su propio almacén de claves cifrado, su copia de la cadena en disco y un servidor TCP. Los nodos (≥ 3) se conectan en malla en una o varias PCs. Consenso **PoW con cadena de mayor trabajo acumulado**. Aquí viven los sellos multifirma y los certificados.
-2. **Laboratorio de consenso (lo del medio término):** el simulador en memoria de 10–20 nodos con PoW y PoS se conserva como pestaña educativa. Comparte el núcleo (`cripto`, `bloque`, `validacion`, `pow`).
+2. **Laboratorio de consenso (lo del medio término):** el simulador en memoria de 10–20 nodos (sólo PoW desde 2026-11-27; la pestaña PoS se eliminó) se conserva como página educativa. Comparte el núcleo (`cripto`, `bloque`, `validacion`, `pow`).
 
-> PoS sobre la red real queda **fuera de alcance** (ver §6, mejora opcional M-5). La rúbrica pide un mecanismo de consenso; PoW en red real + PoS en el simulador lo cubren de sobra.
+> PoS se **eliminó** del sistema (2026-11-27) y la mejora M-5 quedó descartada (ver §6). La rúbrica pide un mecanismo de consenso; PoW en la red real y en el simulador lo cubre.
 
 ### Preguntas pendientes para el profesor (no bloquean el arranque)
 
@@ -40,7 +44,7 @@ Leyenda: ✅ cubierto · 🟡 parcial · ❌ no cubierto. “MT” = rama `medi-
 | R1 | **Técnica adicional** (1) | ❌ Ninguna en MT ni en main. | Falta una técnica completa y funcional. | **Multifirma k-de-n** en el sello (§3.1). | M-1: firma de anillo o ZK si valen 2 pts. |
 | R2 | **Métodos de verificación** (1) | ✅ MT: hash de bloque recalculado, enlace, firmas Ed25519, saldo/doble gasto, consenso, cadena completa desde el génesis, laboratorio de ataques. main: raíz de Merkle. | No hay raíz de Merkle en MT; los bloques PoW no van firmados por el minero; no se verifica la cadena guardada en disco al arrancar; los mensajes TCP no se autentican. | Raíz de Merkle + encabezado separado; firma del proponente también en PoW; validación del archivo al cargar; handshake autenticado; verificación de multifirma y de certificados (§3.2). | Botón “Auditar mi copia” por nodo con informe de qué se verificó. |
 | R3 | **Salvaguarda de la clave privada** (1) | ❌ MT: `ParClaves` deriva la clave de `sha256(f"{semilla}|...|nodo|{i}")` — cualquiera con la semilla (pública, en la UI y en el código) reconstruye la clave. main: no hay claves. | Equivale a clave en el código. | **Almacén de claves cifrado**: clave aleatoria, cifrada con AES-256-GCM bajo una clave derivada de contraseña con scrypt (§3.3). | Cambio de contraseña; bloqueo automático por inactividad. |
-| R4 | **Consenso funcional** (1) | ✅ MT: PoW por rondas (nonces disjuntos, desempate por hash menor, 6 confirmaciones) y PoS (sorteo ponderado, 2/3, castigo). main: PoW real entre 2 PCs con desempate. | En red real hay que resolver *forks* entre N nodos y reorganizaciones. | PoW en red con regla de **mayor trabajo acumulado**, desempate por hash menor, reorganización con devolución de sellos huérfanos a pendientes (§3.4). | Ajuste automático de dificultad por tiempo de bloque. |
+| R4 | **Consenso funcional** (1) | ✅ MT: PoW por rondas (nonces disjuntos, desempate por hash menor, 6 confirmaciones); el PoS del medio término se eliminó el 2026-11-27 y el único consenso es PoW. main: PoW real entre 2 PCs con desempate. | En red real hay que resolver *forks* entre N nodos y reorganizaciones. | PoW en red con regla de **mayor trabajo acumulado**, desempate por hash menor, reorganización con devolución de sellos huérfanos a pendientes (§3.4). | Ajuste automático de dificultad por tiempo de bloque. |
 | R5 | **Distribución de la cadena** (1) | 🟡 MT: 10–20 nodos **en memoria** (un solo proceso). main: réplica real, pero solo 2 PCs. | Falta réplica real en ≥ 3 nodos independientes con sincronización y persistencia. | Red TCP en malla de N nodos, *gossip* con deduplicación, sincronización al conectar/reconectar, persistencia por nodo y panel de consistencia (§3.5). | Descubrimiento de pares por lista semilla; reconexión automática. |
 | R6 | **Agregado particular** (1) | 🟡 MT/main tienen “verificar prioridad” dentro del nodo (requiere confiar en él). | No hay una funcionalidad original verificable fuera del sistema. | **Certificado de prioridad verificable offline** (§3.6). | Versión imprimible (HTML/PDF) del certificado. |
 | R7 | **Solución del problema** (2) | 🟡 La narrativa existe, pero en MT el sellado es “solo visual” (las transacciones son transferencias de créditos). | El flujo real de sellado multiautor no existe de punta a punta. | Flujo completo: registrar → co-firmar → minar → replicar → certificar → verificar → disputa de prioridad (§3.7). | Búsqueda por hash/título y línea de tiempo por laboratorio. |
@@ -85,7 +89,7 @@ Se conserva todo lo de MT y se agrega:
 
 1. **Raíz de Merkle** (portar `merkle_root` de `main:models/crypto.py`) + **prueba de inclusión** (`camino_merkle(tx_ids, i)` y `verificar_camino`). Necesaria también para el certificado.
 2. **Encabezado separado:** el hash del bloque se calcula sobre el encabezado; alterar una transacción cambia la raíz de Merkle y rompe el hash.
-3. **Firma del proponente en PoW** (hoy sólo PoS la tiene): el minero firma el hash; evita que alguien se atribuya un bloque ajeno.
+3. **Firma del proponente en PoW** (en el medio término sólo la tenía PoS, ya eliminado): el minero firma el hash; evita que alguien se atribuya un bloque ajeno.
 4. **Validación al arrancar:** el nodo revalida su `data/<nodo>/cadena.json` completo; si está corrupto o alterado, lo rechaza, lo renombra a `.corrupto` y se resincroniza con sus pares.
 5. **Mensajes de red autenticados:** reto-respuesta firmado con Ed25519 en el `HELLO`; cada bloque/sello recibido se valida completo antes de aceptarse o reenviarse.
 6. **Laboratorio de ataques ampliado** a la red real: un nodo “malicioso” envía cadena con transacción alterada, firma falsa, multifirma incompleta, raíz de Merkle falsa, cadena más corta, génesis ajeno → todos los honestos la rechazan y lo registran en la bitácora.
@@ -243,7 +247,7 @@ Fase 1  (paralelo)    A1 Núcleo cripto ─┐
 | M-2 | **Shamir** para respaldar la clave privada en 3 partes (2 necesarias). Refuerza R3 y sería una 2.ª técnica. | R1/R3 | Bajo–medio |
 | M-3 | Alta de nuevos laboratorios mediante transacción de registro aprobada por multifirma de los existentes. | R1/R7 | Medio |
 | M-4 | Ajuste automático de dificultad. | R4 | Bajo |
-| M-5 | PoS sobre la red real (comité y votos por TCP). | R4 | Alto |
+| M-5 | ~~PoS sobre la red real (comité y votos por TCP).~~ **Descartada:** PoS se eliminó del sistema el 2026-11-27. | R4 | — |
 | M-6 | Certificado imprimible (HTML/PDF). | R6 | Bajo |
 
 ---

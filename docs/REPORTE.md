@@ -1,5 +1,9 @@
 # Reporte: Sellalo, simulador de blockchain con Proof of Work y Proof of Stake
 
+> **Nota (2026-11-27):** este reporte es el del medio término y se conserva como documento histórico. En el proyecto
+> final se eliminó Proof of Stake: el único consenso del sistema (simulador y red Sellalo) es Proof of Work. Las
+> secciones sobre PoS describen código que ya no existe.
+
 **Universidad Anáhuac México · Facultad de Ingeniería · Proyecto de entrega del examen de MT**
 **Autor:** Emilio Arriaga Guzmán · **Video:** _[agregar liga del video]_ · **Repositorio:** rama `medi-termino`
 
