@@ -545,3 +545,44 @@ a.vista-tab:hover { background: rgba(255, 255, 255, .18); }
 .panel-dif .dif-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin: 8px 0 4px; }
 .panel-dif .dif-form select { min-width: 5rem; }
 .panel-dif .subhead { margin-top: 12px; }
+
+/* ---- Formulario «Sellar documento» ---- */
+/* Las etiquetas son rejillas: el texto va en un solo .lbl y nada se estira hacia abajo. */
+.form label { align-content: start; }
+.form label > .lbl { display: block; }
+.form-sello .campo-archivo { grid-column: 1 / -1; }
+.form-sello input[type="file"] {
+  padding: 14px; border: 1.5px dashed var(--border); background: var(--surface-2); cursor: pointer;
+}
+.form-sello input[type="file"]:hover { border-color: var(--accent); }
+.form-sello input[type="file"]::file-selector-button {
+  font: inherit; font-weight: 600; margin-right: 12px; padding: 7px 14px; cursor: pointer;
+  border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--surface); color: var(--accent);
+}
+.form-sello input[type="file"]::file-selector-button:hover { background: var(--accent-soft); }
+.form-sello .campo-archivo .small { font-weight: 400; }
+
+/* Autores como pastillas seleccionables */
+.chips-autores { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips-autores .check {
+  display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface);
+  font-weight: 600; font-size: .85rem; transition: border-color .15s, background .15s;
+}
+.chips-autores .check:hover { border-color: var(--accent); }
+.chips-autores .check:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.chips-autores .check:has(input:disabled) { cursor: default; opacity: .9; }
+.chips-autores .check input { width: auto; margin: 0; accent-color: var(--accent); }
+
+/* Umbral + botón en una fila */
+.form-sello .sello-acciones {
+  grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px;
+}
+.form-sello .umbral-fila { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-weight: 600; }
+.form-sello .umbral-fila .lbl { display: inline; }
+.form-sello .umbral-fila input { width: 84px; text-align: center; }
+.form-sello .umbral-fila .muted { font-weight: 400; }
+@media (max-width: 560px) {
+  .form-sello .sello-acciones { flex-direction: column; align-items: stretch; }
+  .form-sello .sello-acciones .btn { width: 100%; }
+}

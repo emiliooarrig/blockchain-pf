@@ -114,16 +114,25 @@
   <section class="card" id="seccion-sellar" aria-labelledby="t-sellar">
     <h2 id="t-sellar">Sellar documento</h2>
     <p class="section-hint">Sólo el hash SHA-256 del documento sale de tu PC; el contenido nunca se guarda ni se transmite.</p>
-    <form id="form-sello" class="form form-grid" autocomplete="off">
-      <label>Documento<input id="in-sello-archivo" name="archivo" type="file" required></label>
-      <label>Título<input id="in-sello-titulo" name="titulo" type="text" maxlength="120" required></label>
-      <label>Investigador<input id="in-sello-inv" name="investigador" type="text" maxlength="80" required></label>
-      <label>Umbral de firmas (1 a <span id="umbral-max">1</span>)<input id="in-sello-umbral" name="umbral" type="number" min="1" value="1" required></label>
+    <form id="form-sello" class="form form-grid form-sello" autocomplete="off">
+      <label class="campo-archivo"><span class="lbl">Documento</span>
+        <input id="in-sello-archivo" name="archivo" type="file" required>
+        <span class="small muted">Se calcula su SHA-256 en este nodo; el archivo no se guarda ni se envía.</span>
+      </label>
+      <label><span class="lbl">Título</span><input id="in-sello-titulo" name="titulo" type="text" maxlength="120" placeholder="p. ej. Inhibición de la vía Y" required></label>
+      <label><span class="lbl">Investigador</span><input id="in-sello-inv" name="investigador" type="text" maxlength="80" placeholder="p. ej. Dra. A. Pérez" required></label>
       <fieldset class="autores">
-        <legend>Autores (laboratorios)</legend>
-        <div id="autores-lista" class="check-grid"></div>
+        <legend>Autores (laboratorios que deben respaldar el sello)</legend>
+        <div id="autores-lista" class="check-grid chips-autores"></div>
       </fieldset>
-      <div class="row-buttons"><button class="btn" type="submit" id="btn-sellar">Firmar y proponer sello</button></div>
+      <div class="sello-acciones">
+        <label class="umbral-fila" for="in-sello-umbral">
+          <span class="lbl">Firmas necesarias</span>
+          <input id="in-sello-umbral" name="umbral" type="number" min="1" value="1" required>
+          <span class="muted">de <strong id="umbral-max">1</strong> autor(es) marcados</span>
+        </label>
+        <button class="btn" type="submit" id="btn-sellar">Firmar y proponer sello</button>
+      </div>
     </form>
     <div id="sello-resultado" class="resultado" hidden></div>
   </section>
