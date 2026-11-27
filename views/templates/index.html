@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sellalo · Simulador de blockchain</title>
+  <title>Sellalo · Simulador Proof of Work</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
@@ -17,14 +17,11 @@
     </div>
     <div>
       <h1>Sellalo</h1>
-      <p class="subtitle">Simulador de blockchain para el sellado de tiempo entre laboratorios · de 10 a 20 laboratorios (nodos) con transacciones firmadas (Ed25519) · cada laboratorio valida la cadena completa antes de aceptarla</p>
+      <p class="subtitle">Simulador Proof of Work para el sellado de tiempo entre laboratorios · de 10 a 20 laboratorios (nodos) con transacciones firmadas (Ed25519) · cada laboratorio valida la cadena completa antes de aceptarla</p>
     </div>
   </div>
   <a class="btn btn-on-dark btn-link" id="enlace-nodo" href="/" hidden>Nodo Sellalo</a>
-  <nav class="tabs" role="tablist" aria-label="Versión">
-    <button class="tab" role="tab" data-version="pow" id="tab-pow">V1 · Proof of Work</button>
-    <button class="tab" role="tab" data-version="pos" id="tab-pos">V2 · Proof of Stake</button>
-  </nav>
+  <span class="badge badge-version">Simulador Proof of Work</span>
 </header>
 
 <main>
@@ -34,7 +31,7 @@
   <section class="grid-2">
     <div class="card">
       <h2><span class="step">1</span>Red de laboratorios</h2>
-      <p class="section-hint">Cada laboratorio es un nodo de la red. Crea o reinicia la simulación de esta versión; N debe estar entre 10 y 20.</p>
+      <p class="section-hint">Cada laboratorio es un nodo de la red. Crea o reinicia la simulación; N debe estar entre 10 y 20.</p>
       <form id="form-red" class="form form-grid" novalidate>
         <label>Laboratorios (N)<input name="n" type="number" min="10" max="20" value="10" required></label>
         <label>Semilla<input name="semilla" type="number" min="0" value="2026"></label>
@@ -66,7 +63,7 @@
   </section>
 
   <!-- PoW -->
-  <section class="card" id="panel-pow" hidden>
+  <section class="card" id="panel-pow">
     <div class="section-head">
       <div>
         <h2><span class="step">3</span>Minado: competencia entre los N laboratorios</h2>
@@ -90,61 +87,6 @@
     <div class="race-banner" id="pow-mensaje"></div>
     <div class="pow-meta" id="pow-meta"></div>
     <div class="miners-grid" id="mineros"></div>
-  </section>
-
-  <!-- PoS -->
-  <section class="card" id="panel-pos" hidden>
-    <div class="section-head">
-      <div>
-        <h2><span class="step">3</span>Ronda de Proof of Stake</h2>
-        <p class="section-hint">Los laboratorios validadores apuestan créditos; el proponente se sortea con probabilidad <span class="mono">aᵢ/A</span> usando la semilla pública <span class="mono">hash_anterior|número|intento</span>. El bloque se acepta si <span class="mono">3V ≥ 2A</span>.</p>
-      </div>
-      <span class="badge" id="pos-badge">sin ronda</span>
-    </div>
-    <ol class="stepper" id="pos-stepper"></ol>
-    <div class="grid-pos">
-      <form id="form-pos-config" class="form" novalidate>
-        <h3>Configuración</h3>
-        <label>Tamaño del comité (0 = todos los laboratorios con créditos)<input name="tam_comite" type="number" min="0" max="20" value="0"></label>
-        <label>Regla de castigo
-          <select name="regla">
-            <option value="A">A · c = apuesta completa</option>
-            <option value="B">B · c = min(apuesta, α · valor de las tx)</option>
-          </select>
-        </label>
-        <label>α (%) para la regla B<input name="alfa_pct" type="number" min="1" max="100" value="50"></label>
-        <label>Fraude del laboratorio deshonesto
-          <select name="fraude">
-            <option value="firma">Firma alterada</option>
-            <option value="gasto">Gasto mayor a sus créditos</option>
-          </select>
-        </label>
-        <button class="btn btn-ghost" type="submit">Guardar configuración</button>
-      </form>
-      <div>
-        <h3>Acciones de la ronda</h3>
-        <div class="pos-actions">
-          <button class="btn" type="button" data-accion="pos-ronda">1 · Iniciar ronda</button>
-          <button class="btn btn-ghost" type="button" data-accion="pos-apuestas">2 · Apuestas automáticas</button>
-          <button class="btn" type="button" data-accion="pos-sortear">3 · Sortear proponente</button>
-          <button class="btn" type="button" data-accion="pos-candidato">4 · Construir candidato</button>
-          <button class="btn btn-ghost" type="button" data-accion="pos-votacion">5 · Votación automática</button>
-          <button class="btn" type="button" data-accion="pos-cerrar">6 · Cerrar votación</button>
-          <button class="btn btn-accent" type="button" data-accion="pos-auto">Ronda automática completa</button>
-          <button class="btn btn-danger" type="button" data-accion="pos-cancelar">Cancelar ronda</button>
-        </div>
-        <div class="race-banner" id="pos-mensaje"></div>
-        <div class="vote-meter" id="vote-meter"></div>
-      </div>
-    </div>
-    <div class="table-wrap">
-      <table class="table" id="tabla-validadores">
-        <thead><tr><th>Laboratorio validador</th><th>Disponible</th><th>Apuesta</th><th>Probabilidad</th><th>Papel</th><th>Voto</th><th>Acciones</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-    <div id="pos-candidato"></div>
-    <div id="pos-historial"></div>
   </section>
 
   <!-- Laboratorios -->
@@ -194,7 +136,7 @@
     <!-- Bitácora -->
     <div class="card">
       <h2><span class="step">7</span>Bitácora de eventos</h2>
-      <p class="section-hint">Bloques, difusiones, rechazos, castigos y recompensas acreditadas.</p>
+      <p class="section-hint">Bloques, difusiones, rechazos y recompensas acreditadas.</p>
       <ol class="log" id="bitacora"></ol>
     </div>
   </section>

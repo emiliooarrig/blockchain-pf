@@ -26,12 +26,11 @@
   }
 
   const ui = {
-    version: location.hash === "#pos" ? "pos" : "pow",
+    version: "pow",
     estado: null,
     cadenaClave: "",
     nodosFirma: "",
-    casosVersion: "",
-    validadoresFirma: "",
+    casosListos: false,
     timer: null,
     ocupado: false,
   };
@@ -85,7 +84,7 @@
       $("#sync-banner").classList.remove("offline");
       ui.estado = r;
       render(r);
-      if (r.consenso === "pow" && r.motor.minando) espera = 250;
+      if (r.motor.minando) espera = 250;
       await actualizarCadena(r);
     } else {
       const b = $("#sync-banner");
@@ -96,35 +95,14 @@
     ui.timer = setTimeout(actualizar, espera);
   }
 
-  function cambiarVersion(v) {
-    ui.version = v;
-    history.replaceState(null, "", `#${v}`);
-    ui.cadenaClave = ui.nodosFirma = ui.casosVersion = ui.validadoresFirma = "";
-    ui.estado = null;
-    ui.primeraVez = true;
-    $("#cadena").replaceChildren();
-    actualizar();
-  }
-
   // ---------------------------------------------------------------- render general
   function render(e) {
-    document.querySelectorAll(".tab").forEach((t) => {
-      const activo = t.dataset.version === e.consenso;
-      t.classList.toggle("is-active", activo);
-      t.setAttribute("aria-selected", activo);
-    });
-    $("#panel-pow").hidden = e.consenso !== "pow";
-    $("#panel-pos").hidden = e.consenso !== "pos";
-    document.title = `Sellalo · ${e.consenso === "pow" ? "Proof of Work" : "Proof of Stake"}`;
+    document.title = "Sellalo · Proof of Work";
 
     if (ui.primeraVez !== false) {
       const f = $("#form-red");
       for (const k of ["n", "semilla", "saldo_inicial", "recompensa"]) f.elements[k].value = e.parametros[k];
       f.elements.reproducible.checked = e.parametros.reproducible;
-      if (e.consenso === "pos") {
-        const c = e.motor.config, fp = $("#form-pos-config");
-        for (const k of ["tam_comite", "regla", "alfa_pct", "fraude"]) fp.elements[k].value = c[k];
-      }
       ui.primeraVez = false;
     }
 
@@ -133,8 +111,7 @@
     renderPendientes(e);
     renderSync(e);
     renderNodos(e);
-    if (e.consenso === "pow") renderPow(e);
-    else renderPos(e);
+    renderPow(e);
     renderCasos(e);
     renderRecompensas(e);
     renderBitacora(e);
@@ -143,10 +120,10 @@
   function renderResumen(e) {
     const p = e.parametros;
     const filas = [
-      ["Consenso", e.consenso === "pow" ? "Proof of Work" : "Proof of Stake"],
+      ["Consenso", "Proof of Work"],
       ["Laboratorios", p.n],
       ["Semilla", `${p.semilla}${p.reproducible ? " · reloj simulado" : ""}`],
-      ["Recompensa", e.consenso === "pow" ? `${p.recompensa} créditos (se acreditan tras 6 confirmaciones)` : `${p.recompensa} créditos (se pagan al aceptar el bloque)`],
+      ["Recompensa", `${p.recompensa} créditos (se acreditan tras 6 confirmaciones)`],
       ["Altura", e.altura],
     ];
     $("#red-resumen").replaceChildren(...filas.flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)]));
@@ -192,44 +169,25 @@
   }
 
   function renderNodos(e) {
-    const pow = e.consenso === "pow";
-    const cols = pow
-      ? ["Laboratorio", "Altura", "Hash del último bloque", "Sincronía", "Créditos disponibles", "Recompensas pendientes", "Último rechazo"]
-      : ["Laboratorio", "Altura", "Hash del último bloque", "Sincronía", "Créditos", "Bloqueado / castigado", "Disponible", "Comportamiento"];
+    const cols = ["Laboratorio", "Altura", "Hash del último bloque", "Sincronía", "Créditos disponibles", "Recompensas pendientes", "Último rechazo"];
     const head = $("#nodos-head");
-    if (head.dataset.version !== e.consenso) {
-      head.replaceChildren(...cols.map((c) => h("th", {}, c)));
-      head.dataset.version = e.consenso;
-    }
+    if (!head.children.length) head.replaceChildren(...cols.map((c) => h("th", {}, c)));
     const filas = e.nodos.map((n) => {
       const celdas = [
         h("td", {}, h("strong", {}, n.id)),
         h("td", { class: "mono" }, n.altura),
         h("td", { class: "mono small", title: n.ultimo_hash }, corto(n.ultimo_hash, 14)),
         h("td", {}, h("span", { class: `dot ${n.sincronizado ? "dot-ok" : "dot-bad"}` }), n.sincronizado ? "sí" : "no"),
+        h("td", { class: "mono" }, fmt(n.disponible)),
+        h("td", { class: "mono" }, n.pendiente_recompensa ? h("span", { class: "chip chip-warn" }, `${fmt(n.pendiente_recompensa)} pendiente`) : "—"),
+        h("td", { class: "small muted", title: n.ultimo_rechazo }, n.ultimo_rechazo ? n.ultimo_rechazo.slice(0, 70) : "—"),
       ];
-      if (pow) {
-        celdas.push(
-          h("td", { class: "mono" }, fmt(n.disponible)),
-          h("td", { class: "mono" }, n.pendiente_recompensa ? h("span", { class: "chip chip-warn" }, `${fmt(n.pendiente_recompensa)} pendiente`) : "—"),
-          h("td", { class: "small muted", title: n.ultimo_rechazo }, n.ultimo_rechazo ? n.ultimo_rechazo.slice(0, 70) : "—"));
-      } else {
-        celdas.push(
-          h("td", { class: "mono" }, fmt(n.saldo)),
-          h("td", { class: "mono" }, n.retenido ? fmt(n.retenido) : "—"),
-          h("td", { class: "mono" }, fmt(n.disponible)),
-          h("td", {}, h("button", {
-            class: `btn btn-small ${n.deshonesto ? "btn-danger is-on" : "btn-ghost"}`, type: "button",
-            title: "Si lo sortean, propone un bloque inválido",
-            onclick: (ev) => enviar(`/nodos/${n.id}/deshonesto`, { deshonesto: !n.deshonesto }, ev.currentTarget),
-          }, n.deshonesto ? "Deshonesto" : "Honesto")));
-      }
       return h("tr", { class: n.sincronizado ? "" : "row-bad" }, ...celdas);
     });
     $("#tabla-nodos tbody").replaceChildren(...filas);
   }
 
-  // ---------------------------------------------------------------- PoW
+  // ---------------------------------------------------------------- minado
   function renderPow(e) {
     const m = e.motor;
     const badge = $("#pow-badge");
@@ -273,110 +231,12 @@
     });
   }
 
-  // ---------------------------------------------------------------- PoS
-  function renderPos(e) {
-    const m = e.motor, r = m.ronda;
-    const etapa = r ? r.estado : "SIN RONDA";
-    const badge = $("#pos-badge");
-    badge.className = `badge ${r && ["ACEPTADO"].includes(etapa) ? "badge-ok" : r && ["RECHAZADO", "FALLIDA"].includes(etapa) ? "badge-bad" : r && etapa !== "CANCELADA" ? "badge-live" : "badge-idle"}`;
-    badge.textContent = r ? `ronda ${r.id} · bloque #${r.numero} · ${etapa}` : "sin ronda";
-
-    const orden = m.estados;
-    const idx = r ? orden.indexOf(etapa) : -1;
-    $("#pos-stepper").replaceChildren(...orden.map((s, i) => {
-      let cls = "";
-      if (r && s === etapa) cls = s === "RECHAZADO" ? "is-bad" : s === "ACEPTADO" ? "is-ok" : "is-current";
-      else if (r && idx > i && i < 4) cls = "is-done";
-      return h("li", { class: cls }, s);
-    }));
-
-    const activa = r && ["APUESTAS", "SORTEO", "CANDIDATO", "VOTACION", "RECHAZADO"].includes(etapa);
-    const habilitar = {
-      "pos-ronda": !activa, "pos-apuestas": etapa === "APUESTAS", "pos-sortear": ["APUESTAS", "SORTEO", "RECHAZADO"].includes(etapa),
-      "pos-candidato": etapa === "CANDIDATO", "pos-votacion": etapa === "VOTACION", "pos-cerrar": etapa === "VOTACION",
-      "pos-auto": true, "pos-cancelar": activa,
-    };
-    for (const [k, v] of Object.entries(habilitar)) document.querySelector(`[data-accion="${k}"]`).disabled = !v;
-
-    const msg = $("#pos-mensaje");
-    let texto = r ? r.mensaje : "";
-    if (!texto) texto = !r ? "Inicia una ronda para elegir el comité de laboratorios validadores." : {
-      APUESTAS: "Registra las apuestas (manual en la tabla o automáticas) y luego sortea el proponente.",
-      CANDIDATO: `Proponente sorteado: ${r.proponente}. Ahora construye el bloque candidato.`,
-      VOTACION: "Los validadores revisan el candidato y votan (manual en la tabla o automática).",
-    }[etapa] || "";
-    if (m.castigos_pendientes.length) texto += ` · ${m.castigos_pendientes.length} castigo(s) de rondas fallidas por registrar.`;
-    msg.textContent = texto;
-    msg.className = `race-banner show ${etapa === "ACEPTADO" ? "win" : ["RECHAZADO", "FALLIDA"].includes(etapa) ? "lose" : ""}`;
-
-    const meter = $("#vote-meter");
-    if (r && r.votacion.total) {
-      const v = r.votacion, pct = (100 * v.a_favor) / v.total;
-      meter.replaceChildren(
-        h("div", { class: "meter" }, h("span", { class: "meter-fill", style: `width:${pct}%` }), h("span", { class: "meter-mark", title: "2/3" })),
-        h("div", { class: "small" }, `A favor V = ${fmt(v.a_favor)} de A = ${fmt(v.total)} (${pct.toFixed(1)}%) · se requiere 3V ≥ 2A (V ≥ ${fmt(v.umbral)}) · ${v.emitidos}/${v.esperados} votos emitidos`));
-    } else meter.replaceChildren();
-
-    renderValidadores(r);
-    renderCandidato(r);
-  }
-
-  function renderValidadores(r) {
-    const tbody = $("#tabla-validadores tbody");
-    const firma = JSON.stringify(r ? [r.id, r.estado, r.intento, r.validadores] : null);
-    if (firma === ui.validadoresFirma || tbody.contains(document.activeElement)) return;
-    ui.validadoresFirma = firma;
-    if (!r) {
-      tbody.replaceChildren(h("tr", {}, h("td", { colspan: 7, class: "muted" }, "Sin ronda en curso.")));
-      return;
-    }
-    tbody.replaceChildren(...r.validadores.map((v) => {
-      const acciones = [];
-      if (r.estado === "APUESTAS") {
-        const input = h("input", { type: "number", min: 1, max: v.disponible + (v.apuesta || 0), placeholder: "monto", class: "input-small", "aria-label": `Apuesta de ${v.id}` });
-        acciones.push(input, h("button", { class: "btn btn-small", type: "button", onclick: (ev) => enviar("/pos/apostar", { nodo: v.id, monto: input.value }, ev.currentTarget) }, "Apostar"));
-      }
-      if (r.estado === "VOTACION" && v.voto === null && ["validador", "proponente"].includes(v.papel)) {
-        acciones.push(
-          h("button", { class: "btn btn-small", type: "button", onclick: (ev) => enviar("/pos/votar", { nodo: v.id, a_favor: true }, ev.currentTarget) }, "A favor"),
-          h("button", { class: "btn btn-small btn-danger", type: "button", onclick: (ev) => enviar("/pos/votar", { nodo: v.id, a_favor: false }, ev.currentTarget) }, "En contra"));
-      }
-      const voto = v.voto === null ? "—" : h("span", { class: `chip ${v.voto ? "chip-ok" : "chip-bad"}`, title: v.evaluacion || "" }, v.voto ? "a favor" : "en contra");
-      return h("tr", { class: `papel-${v.papel.replace(" ", "-")}` },
-        h("td", {}, h("strong", {}, v.id)),
-        h("td", { class: "mono" }, fmt(v.disponible)),
-        h("td", { class: "mono" }, v.apuesta ? fmt(v.apuesta) : "—"),
-        h("td", { class: "mono" }, v.probabilidad === null ? "—" : `${v.probabilidad}%`),
-        h("td", {}, h("span", { class: `chip chip-${v.papel.replace(" ", "-")}` }, v.papel + (v.castigo ? ` (−${fmt(v.castigo)})` : ""))),
-        h("td", {}, voto, v.evaluacion && v.evaluacion !== "válido" ? h("div", { class: "small muted" }, v.evaluacion.slice(0, 80)) : null),
-        h("td", { class: "acciones" }, ...acciones));
-    }));
-  }
-
-  function renderCandidato(r) {
-    const cont = $("#pos-candidato");
-    const hist = $("#pos-historial");
-    if (!r || !r.candidato) cont.replaceChildren();
-    else {
-      const c = r.candidato;
-      cont.replaceChildren(h("div", { class: "candidate" },
-        h("h3", {}, `Bloque candidato #${r.numero} · proponente ${r.proponente} · intento ${r.intento}`),
-        r.sorteo ? h("p", { class: "small muted" }, `Sorteo: r = ${r.sorteo.r} mod A = ${fmt(r.sorteo.A)} → ${r.proponente} (probabilidad ${r.sorteo.probabilidad}%)`) : null,
-        h("p", { class: "small" }, "Hash de la propuesta ", h("span", { class: "mono" }, corto(c.hash_propuesta, 18)), " · firma del proponente ", h("span", { class: "mono" }, corto(c.firma_proponente, 18)), c.castigos ? ` · registra ${c.castigos} castigo(s)` : ""),
-        h("ul", { class: "tx-list compact" }, ...c.transacciones.map((tx) => h("li", {}, h("strong", {}, `${tx.emisor} → ${tx.receptor}`), ` · ${fmt(tx.monto)} · `, h("span", { class: "mono small muted" }, `firma ${corto(tx.firma, 12)}`))))));
-    }
-    if (!r || !r.historial.length) hist.replaceChildren();
-    else hist.replaceChildren(h("h3", { class: "subhead" }, "Intentos de esta ronda"), h("ol", { class: "history" },
-      ...r.historial.map((x) => h("li", { class: x.resultado === "ACEPTADO" ? "ok" : "bad" },
-        h("strong", {}, `Intento ${x.intento} · ${x.proponente}: ${x.resultado}`), x.castigo ? ` · castigo ${fmt(x.castigo)}` : "", h("div", { class: "small" }, x.motivo)))));
-  }
-
   // ---------------------------------------------------------------- cadena
   async function actualizarCadena(e) {
     const sel = $("#cadena-nodo");
     const nodo = sel.value || (e.nodos[0] && e.nodos[0].id);
     const nodoInfo = e.nodos.find((n) => n.id === nodo);
-    const clave = `${e.consenso}|${nodo}|${nodoInfo ? nodoInfo.ultimo_hash : ""}|${e.revision}`;
+    const clave = `${nodo}|${nodoInfo ? nodoInfo.ultimo_hash : ""}|${e.revision}`;
     if (clave === ui.cadenaClave) return;
     const r = await pedir(`/cadena?nodo=${encodeURIComponent(nodo)}`);
     if (!r.ok) return;
@@ -401,7 +261,6 @@
       ...campo("Proponente", genesis ? "—" : b.proponente),
     ];
     if (!genesis && b.dificultad !== undefined) campos.push(...campo("Dificultad / nonce", `${b.dificultad} / ${fmt(b.nonce)}`, "mono"));
-    if (!genesis && b.votos) campos.push(...campo("Nonce", "0 (PoS)", "mono"));
     if (!genesis) campos.push(...campo("Recompensa", fmt(b.recompensa), "mono"));
     if (genesis) campos.push(...campo("Laboratorios", `${Object.keys(b.cuentas).length} · ${fmt(Object.values(b.cuentas)[0].saldo)} créditos c/u`));
 
@@ -411,18 +270,6 @@
         ...b.transacciones.map((tx) => h("div", { class: "entry" }, h("strong", {}, `${tx.emisor} → ${tx.receptor}`), ` · ${fmt(tx.monto)}`,
           h("div", { class: "mono small muted" }, `firma ${corto(tx.firma, 20)}`)))));
     }
-    if (b.votos) {
-      const favor = b.votos.filter((v) => v.a_favor).reduce((s, v) => s + v.peso, 0);
-      const total = b.validadores.filter((v) => !b.excluidos.includes(v.id)).reduce((s, v) => s + v.apuesta, 0);
-      detalles.push(h("details", { class: "entries" }, h("summary", {}, `Votos: ${fmt(favor)} de ${fmt(total)} a favor · intento ${b.intento}`),
-        h("div", { class: "small muted" }, `Comité: ${b.validadores.map((v) => `${v.id}(${v.apuesta})`).join(", ")}`),
-        b.excluidos.length ? h("div", { class: "small" }, `Excluidos por rechazo: ${b.excluidos.join(", ")}`) : null,
-        ...b.votos.map((v) => h("div", { class: "entry small" }, `${v.validador} · peso ${fmt(v.peso)} · `, h("span", { class: v.a_favor ? "ok-text" : "bad-text" }, v.a_favor ? "a favor" : "en contra")))));
-      if (b.castigos.length) {
-        detalles.push(h("details", { class: "entries" }, h("summary", {}, `${b.castigos.length} castigo(s) registrados`),
-          ...b.castigos.map((c) => h("div", { class: "entry small" }, `${c.validador}: −${fmt(c.monto)} (regla ${c.regla}, apuesta ${fmt(c.apuesta)})`, h("div", { class: "muted" }, c.motivo)))));
-      }
-    }
     return h("article", { class: `block ${genesis ? "block-genesis" : ""}` },
       h("header", { class: "block-head" }, h("h3", {}, genesis ? "Génesis #0" : `Bloque #${b.numero}`)),
       h("dl", { class: "block-fields" }, ...campos),
@@ -430,14 +277,14 @@
       h("div", { class: "mono hash-box" }, b.hash_anterior),
       h("div", { class: "hash-label" }, "hash (SHA-256)"),
       h("div", { class: "mono hash-box hash-main" }, h("span", { class: "zeros" }, b.hash.slice(0, ceros)), b.hash.slice(ceros)),
-      b.firma_proponente ? [h("div", { class: "hash-label" }, "Firma del proponente"), h("div", { class: "mono hash-box" }, corto(b.firma_proponente, 28))] : null,
+      b.firma_minero ? [h("div", { class: "hash-label" }, "Firma del minero"), h("div", { class: "mono hash-box" }, corto(b.firma_minero, 28))] : null,
       ...detalles);
   }
 
   // ---------------------------------------------------------------- casos, recompensas y bitácora
   function renderCasos(e) {
-    if (ui.casosVersion === e.consenso) return;
-    ui.casosVersion = e.consenso;
+    if (ui.casosListos) return;
+    ui.casosListos = true;
     const boton = (c) => h("button", {
       class: "btn btn-ghost btn-case", type: "button",
       onclick: (ev) => enviar("/ataques", { tipo: c.id, nodo: $("#ataque-nodo").value }, ev.currentTarget),
@@ -465,11 +312,6 @@
   }
 
   // ---------------------------------------------------------------- eventos
-  document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => cambiarVersion(t.dataset.version)));
-  window.addEventListener("hashchange", () => {
-    const v = location.hash === "#pos" ? "pos" : "pow";
-    if (v !== ui.version) cambiarVersion(v);
-  });
   $("#cadena-nodo").addEventListener("change", () => { ui.cadenaClave = ""; actualizar(); });
 
   $("#form-red").addEventListener("submit", (ev) => {
@@ -478,7 +320,7 @@
     const d = formulario(f);
     const clave = f.elements.contrasena.value;          // sin recortar: los espacios cuentan
     if (clave) d.contrasena = clave; else delete d.contrasena;
-    enviar("/simulacion", d, ev.submitter).then((r) => { f.elements.contrasena.value = ""; if (r.ok) { ui.nodosFirma = ui.validadoresFirma = ""; ui.cadenaClave = ""; } });
+    enviar("/simulacion", d, ev.submitter).then((r) => { f.elements.contrasena.value = ""; if (r.ok) { ui.nodosFirma = ""; ui.cadenaClave = ""; } });
   });
   $("#form-tx").addEventListener("submit", (ev) => {
     ev.preventDefault();
@@ -489,23 +331,11 @@
     ev.preventDefault();
     enviar("/minar", formulario(ev.currentTarget), ev.submitter);
   });
-  $("#form-pos-config").addEventListener("submit", (ev) => {
-    ev.preventDefault();
-    enviar("/pos/config", formulario(ev.currentTarget), ev.submitter);
-  });
 
   const acciones = {
     "tx-aleatoria": () => ["/transacciones/aleatoria", { cantidad: 3 }],
     "minar-10": () => ["/minar", { ...formulario($("#form-minar")), bloques: 10, auto_transacciones: true }],
     "cancelar-minado": () => ["/minar/cancelar", {}],
-    "pos-ronda": () => ["/pos/ronda", {}],
-    "pos-apuestas": () => ["/pos/apuestas-automaticas", {}],
-    "pos-sortear": () => ["/pos/sortear", {}],
-    "pos-candidato": () => ["/pos/candidato", {}],
-    "pos-votacion": () => ["/pos/votacion-automatica", {}],
-    "pos-cerrar": () => ["/pos/cerrar", {}],
-    "pos-auto": () => ["/pos/ronda-automatica", {}],
-    "pos-cancelar": () => ["/pos/cancelar", {}],
   };
   document.querySelectorAll("[data-accion]").forEach((b) => b.addEventListener("click", (ev) => {
     const [ruta, cuerpo] = acciones[b.dataset.accion]();
