@@ -809,8 +809,10 @@ def test_certificado_de_otra_red_se_reconoce(labs, labs_otra_red, certificado, t
     app2 = crear_app(labs, tmp_path / "propia")
     try:
         r = subir_certificado(app.test_client(), certificado).get_json()
-        assert r["ok"] and r["valido"] is True and r["misma_red"] is False      # válido por sí mismo, pero de otra red
-        assert subir_certificado(app2.test_client(), certificado).get_json()["misma_red"] is True
+        # AUD-005: un certificado de otra red NO es válido para este nodo (antes se daba por válido "por sí mismo")
+        assert r["ok"] and r["valido"] is False and r["misma_red"] is False and "génesis" in r["motivo"]
+        propio = subir_certificado(app2.test_client(), certificado).get_json()
+        assert propio["misma_red"] is True and propio["valido"] is True
     finally:
         cerrar_app(app)
         cerrar_app(app2)

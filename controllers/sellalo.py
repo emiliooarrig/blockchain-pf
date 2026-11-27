@@ -452,7 +452,8 @@ def verificar_certificado_ruta():
     encabezados = cert.get("encabezados")
     if isinstance(encabezados, list) and len(encabezados) > MAX_ENCABEZADOS:
         raise ErrorEntrada(f"El certificado tiene demasiados encabezados (máximo {MAX_ENCABEZADOS:,}).")
-    resultado = verificar(cert, documento)
+    # AUD-005: sólo es válido respecto al génesis de la red de este nodo (no al que trae el certificado).
+    resultado = verificar(cert, documento, genesis_esperado=_ctx().nodo.hash_genesis)
     try:
         resumen = resumen_certificado(cert)
     except Exception:
