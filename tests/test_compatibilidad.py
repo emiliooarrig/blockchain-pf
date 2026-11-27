@@ -29,4 +29,5 @@ def test_el_verificador_acepta_los_encabezados_minados_por_el_nucleo():
 def test_certificado_de_una_cadena_validada_por_el_nucleo():
     cadena, _ = construir_cadena(1)
     validar_cadena(cadena, cadena[0]["hash"])
-    assert vc.verificar(generar_certificado(cadena, sha(DOC_A)), documento=DOC_A)["valido"]
+    assert vc.verificar(generar_certificado(cadena, sha(DOC_A)), documento=DOC_A,
+                          genesis_esperado=cadena[0]["hash"])["valido"]

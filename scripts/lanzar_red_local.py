@@ -53,7 +53,8 @@ def preparar(n: int, carpeta: str, contrasena: str | None, http_base: int = PUER
         nodos.append({"id": nid, "datos": datos, "clave": clave, "http": http_base + i, "p2p": p2p_base + i})
     ruta_genesis = os.path.join(carpeta, "genesis.json")
     if not os.path.exists(ruta_genesis):
-        genesis = construir_genesis([f"{x['id']}={x['clave']}" for x in nodos], 100, 10, "Red Sellalo (demo local)")
+        genesis = construir_genesis([f"{x['id']}={x['clave']}" for x in nodos], 100, 10, "Red Sellalo (demo local)",
+                                    dificultad=3)
         with open(ruta_genesis, "w", encoding="utf-8") as f:
             json.dump(genesis, f, indent=2, ensure_ascii=False)
     for x in nodos:

@@ -10,10 +10,10 @@ from models.bloque import (CAMPOS_GENESIS, CAMPOS_POS, CAMPOS_POW, MAX_TX_POR_BL
                            aplicar_transacciones, es_entero, es_numero, hash_bloque, revisar_campos)
 from models.cripto import LARGO_CLAVE_HEX, es_hex
 from models.pos import verificar_pos
-from models.pow import verificar_pow
+from models.pow import DIF_MAX, DIF_MIN, verificar_pow
 
 
-def validar_bloque(estado: Estado, bloque, propuesta: bool = False) -> list:
+def validar_bloque(estado: Estado, bloque, propuesta: bool = False, sin_pruebas: bool = False) -> list:
     """Valida `bloque` como sucesor del estado y lo aplica sobre `estado`.
     Devuelve las recompensas que maduraron con este bloque.
     Con propuesta=True (votación PoS) se omiten el hash final y los votos, que aún no existen."""
@@ -45,7 +45,7 @@ def validar_bloque(estado: Estado, bloque, propuesta: bool = False) -> list:
     if pos:
         if bloque["nonce"] != 0:
             raise ErrorValidacion("en PoS el nonce debe ser 0")
-        verificar_pos(estado, bloque, con_votos=not propuesta)
+        verificar_pos(estado, bloque, con_votos=not propuesta, sin_pruebas=sin_pruebas)
     else:
         verificar_pow(estado, bloque)
     aplicar_transacciones(estado, bloque["transacciones"], bloque["numero"])
@@ -72,6 +72,9 @@ def revisar_genesis(genesis, hash_esperado: str) -> None:
     if params.get("consenso") not in ("pow", "pos") or not es_entero(params.get("recompensa")) \
             or not es_entero(params.get("confirmaciones")):
         raise ErrorValidacion("génesis con parámetros inválidos")
+    dificultad = params.get("dificultad")
+    if "dificultad" in params and (not es_entero(dificultad) or not DIF_MIN <= dificultad <= DIF_MAX):
+        raise ErrorValidacion(f"génesis con dificultad inválida (debe ser un entero entre {DIF_MIN} y {DIF_MAX})")
     if not es_numero(genesis["timestamp"]):
         raise ErrorValidacion("génesis con timestamp inválido")
 

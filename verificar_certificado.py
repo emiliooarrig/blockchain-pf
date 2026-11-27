@@ -2,8 +2,9 @@
 """Verificador independiente de certificados de prioridad de Sellalo.
 
 Sólo usa la biblioteca estándar y `cryptography`; NO importa nada del proyecto, así que cualquiera puede auditarlo.
-Uso:  python verificar_certificado.py certificado.json [--documento ruta] [--genesis HASH]
-Salida: 0 certificado válido, 1 inválido, 2 archivo ilegible o que no es JSON.
+Uso:  python verificar_certificado.py certificado.json --genesis HASH [--documento ruta] [--min-confirmaciones N]
+Salida: 0 certificado válido (red confirmada con --genesis), 1 inválido, 2 archivo ilegible o que no es JSON,
+        3 NO CONCLUYENTE (el certificado es coherente consigo mismo pero no se indicó el génesis de la red).
 """
 import argparse
 import hashlib
@@ -63,7 +64,7 @@ def _camino_ok(hoja, pasos, raiz) -> bool:
 
 
 def _fallo(motivo: str, detalle=None) -> dict:
-    return {"valido": False, "motivo": motivo, "detalle": detalle or {}}
+    return {"valido": False, "concluyente": True, "genesis_confirmado": False, "motivo": motivo, "detalle": detalle or {}}
 
 
 def _clave_de(genesis: dict, nodo):
@@ -100,11 +101,17 @@ def _verificar(cert, documento, genesis_esperado) -> dict:
         return _fallo("el bloque génesis no se puede serializar")
     if genesis.get("hash") != hash_genesis:
         return _fallo("el hash del génesis no coincide con su contenido")
-    if genesis_esperado is not None and hash_genesis != genesis_esperado.strip().lower():
+    if genesis_esperado is not None and genesis_esperado != "" and hash_genesis != genesis_esperado.strip().lower():
         return _fallo("el génesis del certificado no es el esperado (red distinta)",
                       {"genesis": hash_genesis, "esperado": genesis_esperado})
     if not isinstance(genesis.get("cuentas"), dict):
         return _fallo("el génesis no contiene cuentas")
+
+    parametros = genesis.get("parametros")
+    dif_red = parametros.get("dificultad") if isinstance(parametros, dict) else None
+    if isinstance(parametros, dict) and "dificultad" in parametros and (
+            type(dif_red) is not int or not DIF_MIN <= dif_red <= DIF_MAX):
+        return _fallo("el génesis fija una dificultad de red inválida")
 
     # 2. Encabezados
     anterior, previo_num = hash_genesis, 0
@@ -125,6 +132,8 @@ def _verificar(cert, documento, genesis_esperado) -> dict:
         dif = h.get("dificultad")
         if type(dif) is not int or not DIF_MIN <= dif <= DIF_MAX or not h["hash"].startswith("0" * dif):
             return _fallo(f"el bloque {num} no cumple la prueba de trabajo")
+        if dif_red is not None and dif != dif_red:
+            return _fallo(f"el bloque {num} usa dificultad {dif} y el génesis fija la dificultad {dif_red}")
         clave = _clave_de(genesis, h.get("proponente"))
         if clave is None:
             return _fallo(f"el proponente del bloque {num} no está en el génesis")
@@ -176,7 +185,11 @@ def _verificar(cert, documento, genesis_esperado) -> dict:
         return _fallo("el documento no coincide con el hash sellado")
 
     fecha = datetime.fromtimestamp(cabecera["timestamp"], timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    return {"valido": True, "motivo": "certificado válido", "detalle": {
+    confirmado = isinstance(genesis_esperado, str) and bool(genesis_esperado.strip())
+    return {"valido": confirmado, "concluyente": confirmado, "genesis_confirmado": confirmado,
+            "motivo": "certificado válido" if confirmado else
+            "NO CONCLUYENTE: el certificado es coherente consigo mismo, pero no se indicó el hash del génesis de la "
+            "red; cualquiera puede fabricar una red propia", "detalle": {
         "fecha": fecha, "titulo": sello["titulo"], "investigador": sello["investigador"],
         "laboratorio": sello["laboratorio"], "autores": list(autores), "umbral": umbral,
         "bloque": numero_bloque, "confirmaciones": punta - numero_bloque, "genesis": hash_genesis,
@@ -184,7 +197,11 @@ def _verificar(cert, documento, genesis_esperado) -> dict:
 
 
 def verificar(cert: dict, documento: bytes | None = None, genesis_esperado: str | None = None) -> dict:
-    """Verifica un certificado ya cargado. Nunca lanza excepciones por datos mal formados."""
+    """Verifica un certificado ya cargado. Nunca lanza excepciones por datos mal formados.
+
+    Semántica (AUD-005): `valido` sólo es True si el certificado es íntegro Y se dio `genesis_esperado` y coincide con
+    el génesis del certificado (`genesis_confirmado`). Sin `genesis_esperado` el resultado es `valido=False`,
+    `concluyente=False` (coherente pero de red no confirmada); el detalle conserva los datos del sello."""
     try:
         return _verificar(cert, documento, genesis_esperado)
     except Exception as e:  # datos inesperados: se reporta como inválido, nunca como traceback
@@ -198,7 +215,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Verifica un certificado de prioridad de Sellalo sin conexión.")
     ap.add_argument("certificado")
     ap.add_argument("--documento", help="archivo original para comprobar su SHA-256")
-    ap.add_argument("--genesis", help="hash del génesis esperado (para confirmar la red)")
+    ap.add_argument("--genesis", help="hash del génesis de la red (necesario para concluir que es VÁLIDO)")
     args = ap.parse_args(argv)
     try:
         with open(args.certificado, "r", encoding="utf-8") as f:
@@ -215,11 +232,14 @@ def main(argv=None) -> int:
             print(f"No se pudo leer el documento: {e}")
             return 2
     r = verificar(cert, documento, args.genesis)
-    if not r["valido"]:
+    if not r["valido"] and r["concluyente"]:
         print(f"CERTIFICADO NO VÁLIDO: {r['motivo']}")
         return 1
     d = r["detalle"]
-    print("CERTIFICADO VÁLIDO")
+    print("CERTIFICADO VÁLIDO" if r["valido"] else "CERTIFICADO: NO CONCLUYENTE")
+    if not r["valido"]:
+        print(r["motivo"])
+        print("Repita con --genesis HASH_DEL_GENESIS_DE_LA_RED (publicado por la red) para confirmar la red.")
     print(f"Fecha del bloque: {d['fecha']}")
     print(f"Título: {d['titulo']}")
     print(f"Investigador: {d['investigador']}")
@@ -229,7 +249,7 @@ def main(argv=None) -> int:
     print(f"Génesis: {d['genesis']}")
     print("Documento: " + ("coincide con el hash sellado" if d["documento_comprobado"]
                            else "no se comprobó (use --documento)"))
-    return 0
+    return 0 if r["valido"] else 3
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ los castigos y el umbral de 2/3 al validar la cadena completa.
 import hashlib
 
 from models import merkle
-from models.bloque import (MAX_TX_POR_BLOQUE, MONTO_MAX, ErrorValidacion, copiar, es_entero, hash_bloque,
+from models.bloque import (CAMPOS_POS, MAX_TX_POR_BLOQUE, MONTO_MAX, ErrorValidacion, copiar, es_entero, hash_bloque,
                            nueva_transaccion)
 from models.cripto import LARGO_FIRMA_HEX, canonico, es_hex, sha256_hex, verificar
 from models.errores import ErrorEntrada, ErrorEstado
@@ -22,6 +22,8 @@ FRAUDES = ("firma", "gasto")
 CONFIG_INICIAL = {"tam_comite": 0, "regla": "A", "alfa_pct": 50, "fraude": "firma"}
 ESTADOS_ACTIVOS = ("APUESTAS", "SORTEO", "CANDIDATO", "VOTACION", "RECHAZADO")
 CAMPOS_CASTIGO = ("validador", "apuesta", "valor_transacciones", "regla", "alfa_pct", "monto", "motivo", "hash_propuesta")
+# AUD-007: cada castigo trae la prueba del fraude: el candidato rechazado (sin hash ni votos) con la firma de su proponente.
+CAMPOS_CASTIGO_PRUEBA = CAMPOS_CASTIGO + ("propuesta",)
 CAMPOS_VOTO = ("validador", "peso", "a_favor", "firma")
 
 
@@ -42,6 +44,16 @@ def sortear(validadores: list, hash_anterior: str, numero: int, intento: int):
     return None, None
 
 
+def comite_derivado(candidatos: list, hash_anterior: str, numero: int, tam: int) -> list:
+    """Comité reproducible (AUD-006): con `tam` >= nodos con saldo, todos; si no, los `tam` nodos cuyo
+    SHA-256(`hash_anterior|numero|id`) es menor. Depende sólo de la cadena y de `tam`; nadie lo elige a mano."""
+    candidatos = sorted(candidatos)
+    if tam >= len(candidatos):
+        return candidatos
+    clave = lambda nid: hashlib.sha256(f"{hash_anterior}|{numero}|{nid}".encode()).hexdigest()
+    return sorted(sorted(candidatos, key=clave)[:tam])
+
+
 def calcular_castigo(regla: str, apuesta: int, valor_transacciones: int, alfa_pct: int) -> int:
     """(A) c = a_p      (B) c = min(a_p, ⌈α · valor de las transacciones⌉), con α = alfa_pct / 100 y c ≥ 1."""
     if regla == "A":
@@ -50,17 +62,66 @@ def calcular_castigo(regla: str, apuesta: int, valor_transacciones: int, alfa_pc
 
 
 def mensaje_propuesta(bloque: dict) -> bytes:
-    """Lo que firma el proponente: el bloque candidato sin votos, sin hash y sin su propia firma."""
-    return canonico({k: v for k, v in bloque.items() if k not in ("hash", "votos", "firma_proponente")})
+    """Lo que firma el proponente: el bloque candidato sin votos, sin hash y sin su propia firma.
+    Las pruebas de fraude de los castigos (`propuesta`) no entran: se verifican aparte y así una prueba puede
+    guardarse sin las pruebas anidadas de sus propios castigos (si no, el tamaño crecería exponencialmente)."""
+    datos = {k: v for k, v in bloque.items() if k not in ("hash", "votos", "firma_proponente")}
+    if isinstance(datos.get("castigos"), list):
+        datos["castigos"] = [{k: v for k, v in c.items() if k != "propuesta"} if isinstance(c, dict) else c
+                             for c in datos["castigos"]]
+    return canonico(datos)
+
+
+def prueba_de_propuesta(candidato: dict) -> dict:
+    """Copia del candidato rechazado para usarla como prueba: sin pruebas anidadas (no se firman, ver arriba)."""
+    p = copiar(candidato)
+    p["castigos"] = [{k: v for k, v in c.items() if k != "propuesta"} for c in p["castigos"]]
+    return p
 
 
 def mensaje_voto(hash_propuesta: str, validador: str, a_favor: bool) -> bytes:
     return canonico({"propuesta": hash_propuesta, "validador": validador, "a_favor": a_favor})
 
 
-def _revisar_castigo(estado, c) -> None:
-    if not isinstance(c, dict) or set(c) != set(CAMPOS_CASTIGO):
-        raise ErrorValidacion("registro de castigo con formato inválido")
+def _revisar_prueba(base, bloque: dict, c: dict, k: int | None = None) -> None:
+    """AUD-007: el castigo sólo vale si trae el candidato rechazado, firmado por el castigado, y ese candidato
+    resulta INVÁLIDO al revalidarlo contra el estado previo. `k` = posición en `excluidos` (castigos de esta ronda)."""
+    from models.validacion import validar_bloque
+    p = c["propuesta"]
+    if not isinstance(p, dict) or set(p) != set(CAMPOS_POS):
+        raise ErrorValidacion(f"el castigo de {c['validador']} no trae la propuesta rechazada (prueba de fraude)")
+    try:
+        mensaje = mensaje_propuesta(p)
+        hp = sha256_hex(mensaje)
+        valor = sum(tx["monto"] for tx in p["transacciones"])
+        apuesta = next((v["apuesta"] for v in p["validadores"] if v["id"] == c["validador"]), None)
+        firma_ok = es_hex(p["firma_proponente"], LARGO_FIRMA_HEX) and verificar(
+            base.claves[c["validador"]], mensaje, p["firma_proponente"])
+    except (TypeError, KeyError, ValueError, AttributeError):
+        raise ErrorValidacion(f"la prueba del castigo de {c['validador']} es ilegible") from None
+    if p["hash"] != "" or p["votos"] != []:
+        raise ErrorValidacion("la prueba debe ser la propuesta sin hash ni votos")
+    if p["proponente"] != c["validador"] or p["numero"] != bloque["numero"]             or p["hash_anterior"] != bloque["hash_anterior"]:
+        raise ErrorValidacion(f"la prueba del castigo de {c['validador']} no corresponde a este bloque ni a su proponente")
+    if hp != c["hash_propuesta"] or valor != c["valor_transacciones"] or apuesta != c["apuesta"]:
+        raise ErrorValidacion(f"la prueba del castigo de {c['validador']} no coincide con el registro del castigo")
+    if not firma_ok:
+        raise ErrorValidacion(f"la firma del proponente en la prueba del castigo de {c['validador']} es inválida")
+    if k is not None and (p["intento"] != k or p["excluidos"] != bloque["excluidos"][:k]):
+        raise ErrorValidacion(f"la prueba del castigo de {c['validador']} no es del intento {k} de esta ronda")
+    try:
+        validar_bloque(base.copia(), p, propuesta=True, sin_pruebas=True)
+    except ErrorValidacion:
+        return                                   # la propuesta era inválida: el fraude está probado
+    except (TypeError, KeyError, ValueError, AttributeError):
+        return
+    raise ErrorValidacion(f"castigo sin fundamento: la propuesta de {c['validador']} es válida")
+
+
+def _revisar_castigo(estado, c, con_prueba: bool = True) -> None:
+    if not isinstance(c, dict) or set(c) != set(CAMPOS_CASTIGO_PRUEBA if con_prueba else CAMPOS_CASTIGO):
+        raise ErrorValidacion("registro de castigo con formato inválido (¿falta la prueba de fraude?)"
+                              if con_prueba else "registro de castigo con formato inválido")
     if c["validador"] not in estado.claves:
         raise ErrorValidacion(f"castigo a un nodo inexistente ({c['validador']!r})")
     if not es_entero(c["apuesta"]) or c["apuesta"] <= 0 or not es_entero(c["valor_transacciones"]) \
@@ -76,8 +137,11 @@ def _revisar_castigo(estado, c) -> None:
     estado.saldos[c["validador"]] -= c["monto"]
 
 
-def verificar_pos(estado, bloque: dict, con_votos: bool = True) -> None:
-    """Regla de consenso PoS. Modifica `estado` aplicando los castigos registrados en el bloque."""
+def verificar_pos(estado, bloque: dict, con_votos: bool = True, sin_pruebas: bool = False) -> None:
+    """Regla de consenso PoS. Modifica `estado` aplicando los castigos registrados en el bloque.
+    `sin_pruebas=True` sólo se usa al revalidar una propuesta aportada como prueba de fraude (sus castigos
+    anidados no llevan prueba; ver mensaje_propuesta)."""
+    base = estado.copia()
     validadores, excluidos, castigos = bloque["validadores"], bloque["excluidos"], bloque["castigos"]
     if not isinstance(validadores, list) or not validadores:
         raise ErrorValidacion("el bloque no registra validadores")
@@ -101,16 +165,26 @@ def verificar_pos(estado, bloque: dict, con_votos: bool = True) -> None:
     # 1) castigos de rondas anteriores que fallaron por completo
     corte = len(castigos) - len(excluidos)
     for c in castigos[:corte]:
-        _revisar_castigo(estado, c)
+        _revisar_castigo(estado, c, not sin_pruebas)
+        if not sin_pruebas:
+            _revisar_prueba(base, bloque, c)
+    # 1b) el comité debe ser derivable del estado: todos los nodos con saldo, o el subconjunto reproducible de su tamaño
+    con_saldo = [nid for nid in estado.claves if estado.saldos[nid] > 0]
+    esperado = comite_derivado(con_saldo, bloque["hash_anterior"], bloque["numero"], len(ids))
+    if ids != esperado:
+        raise ErrorValidacion("el comité de validadores no es el que se deriva del estado de la cadena "
+                              "(todos los nodos con saldo o el subconjunto reproducible de ese tamaño)")
     # 2) las apuestas de esta ronda no pueden superar el saldo
     for v in validadores:
         if v["apuesta"] > estado.saldos[v["id"]]:
             raise ErrorValidacion(f"apuesta de {v['id']} ({v['apuesta']}) mayor a su saldo ({estado.saldos[v['id']]})")
     # 3) castigos de esta ronda: uno por cada proponente rechazado, en orden
-    for c, ex in zip(castigos[corte:], excluidos):
+    for k, (c, ex) in enumerate(zip(castigos[corte:], excluidos)):
         if not isinstance(c, dict) or c.get("validador") != ex or c.get("apuesta") != apuesta_de[ex]:
             raise ErrorValidacion(f"el castigo de {ex} no corresponde a su apuesta en esta ronda")
-        _revisar_castigo(estado, c)
+        _revisar_castigo(estado, c, not sin_pruebas)
+        if not sin_pruebas:
+            _revisar_prueba(base, bloque, c, k)
     # 4) el sorteo se repite con los validadores restantes y debe dar los mismos resultados
     if bloque["intento"] != len(excluidos):
         raise ErrorValidacion("el número de intento no coincide con los proponentes rechazados")
@@ -222,14 +296,15 @@ class MotorPoS:
                 raise ErrorEstado("No hay transacciones pendientes: el proponente no tendría nada que proponer. "
                                   "Crea al menos una transacción.")
             ref = red.referencia()
-            con_saldo = [n.id for n in red.nodos if red.saldo_disponible(n.id) > 0]
-            if not con_saldo:
+            if not any(red.saldo_disponible(n.id) > 0 for n in red.nodos):
                 raise ErrorEstado("Ningún nodo tiene saldo disponible: no hay validadores posibles para la ronda.")
             self.contador += 1
+            # El comité se deriva igual que lo exige la validación (AUD-006): nodos con saldo (tras castigos pendientes).
+            con_saldo = [n.id for n in red.nodos
+                         if ref.estado.saldos[n.id] - sum(c["monto"] for c in self.castigos_pendientes
+                                                          if c["validador"] == n.id) > 0]
             tam = self.config["tam_comite"]
-            if tam and tam < len(con_saldo):
-                rng = red.rng_derivado(f"comite|{ref.ultimo_hash}|{self.contador}")
-                con_saldo = sorted(rng.sample(con_saldo, tam))
+            con_saldo = comite_derivado(con_saldo, ref.ultimo_hash, ref.altura + 1, tam or len(con_saldo))
             self.ronda = {
                 "id": self.contador, "estado": "APUESTAS", "numero": ref.altura + 1, "hash_anterior": ref.ultimo_hash,
                 "validadores": con_saldo, "apuestas": {}, "comite": [], "excluidos": [], "castigos": [],
@@ -279,12 +354,19 @@ class MotorPoS:
         with red.lock:
             r = self._exigir("APUESTAS", "SORTEO", "RECHAZADO")
             if r["estado"] == "APUESTAS":
+                # Quien tiene todo su saldo comprometido en transacciones pendientes no puede apostar más: el comité
+                # derivado lo incluye igual (AUD-006), así que participa con la apuesta mínima de 1.
+                for nid in r["validadores"]:
+                    if not r["apuestas"].get(nid) and red.saldo_disponible(nid) <= 0:
+                        r["apuestas"][nid] = 1
+                        red.evento("pos", f"{nid} no tiene saldo libre: participa con la apuesta mínima de 1.")
                 comite = [{"id": nid, "apuesta": r["apuestas"][nid]} for nid in r["validadores"] if r["apuestas"].get(nid)]
                 if not comite:
                     raise ErrorEstado("Ningún validador ha apostado; registra al menos una apuesta antes del sorteo.")
                 sin_apuesta = [nid for nid in r["validadores"] if not r["apuestas"].get(nid)]
                 if sin_apuesta:
-                    red.evento("pos", f"Sin apuesta, quedan fuera del comité: {', '.join(sin_apuesta)}.")
+                    raise ErrorEstado(f"Faltan las apuestas de {', '.join(sin_apuesta)}: el comité lo forman todos los "
+                                      f"validadores derivados de la cadena y cada uno debe apostar (AUD-006).")
                 r["comite"] = comite
             restantes = self._restantes()
             r["estado"] = "SORTEO"
@@ -310,6 +392,11 @@ class MotorPoS:
             if not red.pendientes:
                 raise ErrorEstado("La lista de transacciones pendientes está vacía: el proponente no puede construir "
                                   "un bloque. Crea una transacción y vuelve a intentarlo.")
+            vigentes = [c for c in self.castigos_pendientes if c["propuesta"]["hash_anterior"] == r["hash_anterior"]]
+            if len(vigentes) != len(self.castigos_pendientes):
+                red.evento("pos", f"Se descartan {len(self.castigos_pendientes) - len(vigentes)} castigos pendientes "
+                                  f"de rondas sobre otra cadena: su prueba ya no corresponde a este bloque.")
+                self.castigos_pendientes = vigentes
             proponente = red.nodo(r["proponente"])
             bloque = {
                 "numero": r["numero"], "timestamp": red.reloj(),
@@ -425,6 +512,7 @@ class MotorPoS:
         return self.ronda["mensaje"]
 
     def _rechazar(self, motivo: str) -> str:
+        from models.validacion import validar_bloque
         red, r = self.red, self.ronda
         cand = r["candidato"]
         proponente = r["proponente"]
@@ -432,9 +520,20 @@ class MotorPoS:
         valor = sum(tx["monto"] for tx in cand["transacciones"])
         cfg = self.config
         monto = calcular_castigo(cfg["regla"], apuesta, valor, cfg["alfa_pct"])
+        # AUD-007: sólo se castiga con prueba de fraude; un candidato válido que los votos tumbaron no se castiga.
+        prueba = prueba_de_propuesta(cand)
+        try:
+            validar_bloque(red.referencia().estado.copia(), copiar(prueba), propuesta=True, sin_pruebas=True)
+            valida = True
+        except (ErrorValidacion, TypeError, KeyError, ValueError, AttributeError):
+            valida = False
+        if valida:
+            self._cerrar_ronda("CANCELADA", f"El candidato de {proponente} es válido ({motivo}); sin prueba de fraude no "
+                                            f"se castiga ni se excluye a nadie. Ronda cancelada.")
+            return self.ronda["mensaje"]
         r["castigos"].append({"validador": proponente, "apuesta": apuesta, "valor_transacciones": valor,
                               "regla": cfg["regla"], "alfa_pct": cfg["alfa_pct"], "monto": monto,
-                              "motivo": motivo[:300], "hash_propuesta": r["hash_propuesta"]})
+                              "motivo": motivo[:300], "hash_propuesta": r["hash_propuesta"], "propuesta": prueba})
         r["excluidos"].append(proponente)
         r["historial"].append({"intento": r["intento"], "proponente": proponente, "resultado": "RECHAZADO",
                                "motivo": motivo, "castigo": monto})
