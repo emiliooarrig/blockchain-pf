@@ -30,12 +30,13 @@ def test_nodo_pagina_principal_tiene_las_nueve_secciones(cliente_nodo):
     for s in SECCIONES:
         assert f'id="seccion-{s}"' in html
     assert 'type="password"' in html and 'autocomplete="current-password"' in html
-    assert "sellalo.js" in html and "styles.css" in html
+    assert "sellalo.js" in html and "comun.js" in html and "styles.css" in html
 
 
 def test_nodo_sirve_simulador_y_estaticos(cliente_nodo):
     assert cliente_nodo.get("/simulador").status_code == 200
-    assert cliente_nodo.get("/static/sellalo.js").status_code == 200
+    for js in ("sellalo.js", "comun.js", "rubrica.js", "auditoria.js"):
+        assert cliente_nodo.get(f"/static/{js}").status_code == 200
     assert cliente_nodo.get("/static/styles.css").status_code == 200
 
 
@@ -45,8 +46,10 @@ def test_simulador_tiene_campo_de_contrasena():
 
 
 def test_sellalo_js_no_inserta_html_sin_escapar():
-    with open(os.path.join(RAIZ, "views", "static", "sellalo.js"), encoding="utf-8") as f:
-        js = f.read()
+    js = ""
+    for nombre in ("comun.js", "sellalo.js", "rubrica.js", "auditoria.js"):
+        with open(os.path.join(RAIZ, "views", "static", nombre), encoding="utf-8") as f:
+            js += f.read() + "\n"
     codigo = "\n".join(l for l in js.splitlines() if not l.lstrip().startswith("//"))
     for m in re.finditer(r"innerHTML\s*\+?=([^;\n]*)", codigo):
         asignacion = m.group(1)
