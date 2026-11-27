@@ -18,6 +18,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 DIF_MIN, DIF_MAX = 1, 6      # mismas cotas que exige el nodo (models/pow.py): sin dificultad 0 ni cadenas de ceros gigantes
 EXCLUIDOS_HASH = ("hash", "transacciones", "firma_minero")
 CAMPOS_FIRMADOS = ("tipo", "doc_hash", "titulo", "investigador", "laboratorio", "autores", "umbral", "timestamp")
+CAMPOS_AJUSTE = ("tipo", "dificultad", "proponente", "timestamp")
 HEX = set("0123456789abcdef")
 
 
@@ -50,6 +51,46 @@ def _firma_ok(publica, datos: bytes, firma) -> bool:
 
 def _mensaje_sello(tx: dict) -> bytes:
     return _canonico({k: tx[k] for k in CAMPOS_FIRMADOS})
+
+
+def _mensaje_ajuste(tx: dict) -> bytes:
+    return _canonico({k: tx[k] for k in CAMPOS_AJUSTE})
+
+
+def _revisar_ajuste(entrada, vigente, genesis: dict, cabecera: dict, vistos: set):
+    """Valida un ajuste de dificultad del certificado (C9) contra la dificultad `vigente` y el génesis. Devuelve
+    (nueva_dificultad, None) o (None, motivo)."""
+    tx, prueba = entrada.get("tx"), entrada.get("prueba_merkle")
+    if not isinstance(tx, dict) or not isinstance(prueba, dict):
+        return None, "un ajuste de dificultad está mal formado"
+    if set(tx) != set(CAMPOS_AJUSTE) | {"firmas"} or tx["tipo"] != "ajuste_dificultad":
+        return None, "un ajuste de dificultad no tiene exactamente los campos esperados"
+    dif, firmas, proponente = tx["dificultad"], tx["firmas"], tx["proponente"]
+    if type(dif) is not int or not DIF_MIN <= dif <= DIF_MAX:
+        return None, "un ajuste de dificultad pide una dificultad fuera de rango"
+    if vigente is None:
+        return None, "el génesis no fija la dificultad: no admite ajustes"
+    if dif == vigente:
+        return None, f"un ajuste de dificultad pide {dif}, que ya era la vigente"
+    if not isinstance(firmas, dict) or _clave_de(genesis, proponente) is None or proponente not in firmas:
+        return None, "el proponente de un ajuste de dificultad no está en el génesis o no lo firmó"
+    mensaje = _mensaje_ajuste(tx)
+    for quien, firma in firmas.items():
+        if _clave_de(genesis, quien) is None:
+            return None, f"un ajuste de dificultad trae la firma de {str(quien)[:20]}, que no es laboratorio del génesis"
+        if not _firma_ok(_clave_de(genesis, quien), mensaje, firma):
+            return None, f"la firma de {quien} en un ajuste de dificultad no es válida"
+    n = len(genesis["cuentas"])
+    if len(firmas) <= n / 2:
+        return None, f"un ajuste de dificultad tiene {len(firmas)} firma(s) y se necesitan más de la mitad de {n} laboratorios"
+    aid = _sha(mensaje)
+    if aid in vistos:
+        return None, "un ajuste de dificultad aparece dos veces en el certificado"
+    vistos.add(aid)
+    hoja = _sha(_canonico(tx))
+    if prueba.get("hoja") != hoja or not _camino_ok(hoja, prueba.get("camino"), cabecera.get("raiz_merkle")):
+        return None, "la prueba de Merkle de un ajuste de dificultad no lleva a la raíz de su bloque"
+    return dif, None
 
 
 def _camino_ok(hoja, pasos, raiz) -> bool:
@@ -134,6 +175,12 @@ def _verificar(cert, documento, genesis_esperado, reg: _Pasos) -> dict:
         return reg.fallo("génesis", "el número de bloque del certificado no es válido")
     if not encabezados or not all(isinstance(h, dict) for h in encabezados):
         return reg.fallo("encabezados", "los encabezados del certificado no son válidos")
+    ajustes = cert.get("ajustes", [])
+    if not isinstance(ajustes, list) or not all(isinstance(a, dict) and type(a.get("bloque")) is int for a in ajustes) \
+            or len({a["bloque"] for a in ajustes}) != len(ajustes):
+        return reg.fallo("encabezados", "los ajustes de dificultad del certificado no son válidos "
+                                        "(deben ser una lista con un ajuste como máximo por bloque)")
+    ajustes_por_bloque = {a["bloque"]: a for a in ajustes}
 
     # 1. Génesis
     try:
@@ -158,8 +205,8 @@ def _verificar(cert, documento, genesis_esperado, reg: _Pasos) -> dict:
            + ("; es el génesis esperado de la red" if confirmado_esp else
               "; no se indicó el génesis esperado, la red no está confirmada"))
 
-    # 2. Encabezados
-    anterior, previo_num = hash_genesis, 0
+    # 2. Encabezados (la dificultad vigente parte de la del génesis y sólo cambia por un ajuste co-firmado probado)
+    anterior, previo_num, vigente, vistos_ajustes, aplicados = hash_genesis, 0, dif_red, set(), 0
     for h in encabezados:
         num = h.get("numero")
         if type(num) is not int:
@@ -177,20 +224,29 @@ def _verificar(cert, documento, genesis_esperado, reg: _Pasos) -> dict:
         dif = h.get("dificultad")
         if type(dif) is not int or not DIF_MIN <= dif <= DIF_MAX or not h["hash"].startswith("0" * dif):
             return reg.fallo("encabezados", f"el bloque {num} no cumple la prueba de trabajo")
-        if dif_red is not None and dif != dif_red:
-            return reg.fallo("encabezados", f"el bloque {num} usa dificultad {dif} y el génesis fija la dificultad {dif_red}")
+        if vigente is not None and dif != vigente:
+            return reg.fallo("encabezados", f"el bloque {num} usa dificultad {dif} y la vigente es {vigente} "
+                                            f"(la del génesis o la de un ajuste co-firmado probado)")
         clave = _clave_de(genesis, h.get("proponente"))
         if clave is None:
             return reg.fallo("encabezados", f"el proponente del bloque {num} no está en el génesis")
         if not _firma_ok(clave, bytes.fromhex(h["hash"]), h.get("firma_minero")):
             return reg.fallo("encabezados", f"la firma del minero del bloque {num} no es válida")
+        if num in ajustes_por_bloque:        # rige desde el bloque siguiente
+            nueva, motivo = _revisar_ajuste(ajustes_por_bloque[num], vigente, genesis, h, vistos_ajustes)
+            if motivo:
+                return reg.fallo("encabezados", f"bloque {num}: {motivo}")
+            vigente, aplicados = nueva, aplicados + 1
         anterior, previo_num = h["hash"], num
+    if len(ajustes_por_bloque) != aplicados:
+        return reg.fallo("encabezados", "el certificado trae ajustes de dificultad de bloques que no están en los encabezados")
     punta = previo_num
     if numero_bloque > punta:
         return reg.fallo("encabezados", "el bloque del sello no está en los encabezados del certificado")
     cabecera = encabezados[numero_bloque - 1]
     reg.ok("encabezados", f"{punta} encabezado(s): hash recalculado, enlace, prueba de trabajo y firma del minero "
-                          f"correctos hasta la punta (bloque {punta})")
+                          f"correctos hasta la punta (bloque {punta})"
+           + (f"; {aplicados} ajuste(s) de dificultad co-firmado(s) probado(s)" if aplicados else ""))
 
     # 3. Sello
     if set(sello) != set(CAMPOS_FIRMADOS) | {"firmas"}:

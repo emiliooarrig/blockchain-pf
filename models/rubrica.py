@@ -258,6 +258,8 @@ def criterios(v: dict, raiz: str | None = None) -> list[dict]:
     reorgs = [r for r in con["reorganizaciones"] if r["bloques_descartados"] > 0]
     out.append(_criterio("R4", "Consenso funcional (Proof of Work)", 1, [
         _ev(f"PoW con dificultad fija de la red: {nodo['dificultad_red']}", nodo["dificultad_red"] is not None),
+        # Informativa: no exige haber ajustado la dificultad (el criterio no se vuelve más difícil de cumplir).
+        _ev(f"Ajustes de dificultad co-firmados aplicados: {len(nodo.get('ajustes') or [])}", True),
         _ev("Bloques con prueba de trabajo verificada en la cadena", an["bloques"] >= 1
             and all(b["comprobaciones"]["pow"] for b in ver["bloques"])),
         _ev(f"Rechazó {con['bloques_rechazados']} bloque(s) y {con['cadenas_rechazadas']} cadena(s) inválidos",

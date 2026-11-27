@@ -14,6 +14,7 @@ from werkzeug.exceptions import HTTPException
 from controllers import api, paginas
 from controllers.sellalo import ContextoNodo, paginas_nodo, paginas_vistas, resolver_host, sellalo
 from models import Simulador
+from models.coordinador_ajustes import CoordinadorAjustes
 from models.coordinador_sellos import CoordinadorSellos
 from models.errores import ErrorEntrada
 from models.nodo_completo import NodoCompleto
@@ -151,7 +152,8 @@ def create_app_nodo(dir_datos: str, ruta_genesis: str, nodo_id: str, puerto_p2p:
     ruta_clave = ruta_clave or os.path.join(dir_datos, "clave.json")
     nodo = NodoCompleto(dir_datos, genesis, nodo_id, ruta_clave)
     coordinador = CoordinadorSellos(nodo, dir_datos)
-    contexto = ContextoNodo(nodo, coordinador, host_p2p, puerto_p2p, pares, opciones_p2p)
+    contexto = ContextoNodo(nodo, coordinador, host_p2p, puerto_p2p, pares, opciones_p2p,
+                            ajustes=CoordinadorAjustes(nodo, dir_datos))
     return create_app(contexto_nodo=contexto, host_http=host_http, laboratorio_ataques=laboratorio_ataques)
 
 

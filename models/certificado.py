@@ -25,6 +25,21 @@ def _buscar_sello(cadena: list, doc_hash: str):
     return None
 
 
+def _ajustes_de_dificultad(cadena: list) -> list:
+    """Cada ajuste de dificultad de la cadena con su número de bloque y su prueba de Merkle (C9): el verificador los
+    necesita para saber qué dificultad rige en cada encabezado."""
+    salida = []
+    for bloque in cadena[1:]:
+        txs = bloque.get("transacciones", [])
+        for indice, tx in enumerate(txs):
+            if isinstance(tx, dict) and tx.get("tipo") == "ajuste_dificultad":
+                hojas = [merkle.hoja_tx(t) for t in txs]
+                salida.append({"bloque": bloque["numero"], "tx": copy.deepcopy(tx),
+                               "prueba_merkle": {"hoja": hojas[indice], "indice": indice,
+                                                 "camino": merkle.camino(hojas, indice)}})
+    return salida
+
+
 def generar_certificado(cadena: list, doc_hash: str, emitido: float | None = None) -> dict:
     if not es_hex(doc_hash, 64):
         raise ErrorEntrada("el hash del documento debe ser SHA-256 en hexadecimal minúscula (64 caracteres)")
@@ -44,6 +59,7 @@ def generar_certificado(cadena: list, doc_hash: str, emitido: float | None = Non
         "sello": copy.deepcopy(bloque["transacciones"][indice]),
         "prueba_merkle": {"hoja": hojas[indice], "indice": indice, "camino": merkle.camino(hojas, indice)},
         "numero_bloque": bloque["numero"],
+        "ajustes": _ajustes_de_dificultad(cadena),
         "genesis": copy.deepcopy(cadena[0]),
         "encabezados": [copy.deepcopy({k: v for k, v in b.items() if k != "transacciones"}) for b in cadena[1:]],
     }

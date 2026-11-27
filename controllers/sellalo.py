@@ -18,6 +18,7 @@ from flask import Blueprint, Response, current_app, jsonify, render_template, re
 from controllers.entradas import booleano, datos, entero
 from models import ataques_sellalo, rubrica
 from models.bloque import MONTO_MAX, nueva_transaccion
+from models.coordinador_ajustes import CoordinadorAjustes
 from models.certificado import generar_certificado, resumen_certificado
 from models.coordinador_sellos import CoordinadorSellos
 from models.cripto import es_hex
@@ -49,9 +50,11 @@ class ContextoNodo:
     """Une el nodo, el coordinador de sellos y el servidor P2P (que se crea cada vez que el nodo se desbloquea)."""
 
     def __init__(self, nodo: NodoCompleto, coordinador: CoordinadorSellos, host_p2p: str = "0.0.0.0",
-                 puerto_p2p: int = 6000, pares: list | None = None, opciones_p2p: dict | None = None):
+                 puerto_p2p: int = 6000, pares: list | None = None, opciones_p2p: dict | None = None,
+                 ajustes: CoordinadorAjustes | None = None):
         self.nodo = nodo
         self.coordinador = coordinador
+        self.ajustes = ajustes if ajustes is not None else CoordinadorAjustes(nodo, coordinador.dir_datos)
         self.host_p2p = host_p2p
         self.puerto_p2p = puerto_p2p
         self.pares = list(pares or [])           # [(ip, puerto)]
@@ -89,6 +92,7 @@ class ContextoNodo:
                 self.nodo.al_cambiar.remove(self._callback)
             self._callback = conectar_nodo_y_servidor(self.nodo, servidor)
             self.coordinador.conectar(servidor)
+            self.ajustes.conectar(servidor)
             self.servidor = servidor
             pares = list(self.pares)
         for ip, puerto in pares:                     # los fallos de conexión van a la bitácora y no detienen nada
@@ -107,6 +111,7 @@ class ContextoNodo:
             if self.servidor is not None:
                 self.servidor.detener()
             self.coordinador.desconectar()
+            self.ajustes.desconectar()
             self.servidor = None
 
     def activo(self) -> ServidorP2P | None:
@@ -298,6 +303,46 @@ def _vista(ctx, publico, pares, consistencia, sesion, en_firma) -> dict:
             "tipos_ataques_rechazados": set(ctx.tipos_ataques_rechazados)}
 
 
+def _cuerpo_dificultad(ctx) -> dict:
+    """Estado del ajuste de dificultad (C9): vigente, génesis, cotas, mayoría necesaria, historial y propuestas."""
+    nodo = ctx.nodo
+    with nodo.lock:
+        vigente = nodo.estado.dificultad_vigente
+        ajustes = [dict(a, firmantes=list(a["firmantes"])) for a in nodo.estado.ajustes]
+    return {"vigente": vigente, "genesis": nodo.dificultad_genesis, "minimo": DIF_MIN, "maximo": DIF_MAX,
+            "umbral": ctx.ajustes.umbral(), "laboratorios": list(nodo.genesis["cuentas"]), "ajustes": ajustes,
+            "en_firma": ctx.ajustes.en_firma(), "solicitudes": ctx.ajustes.solicitudes()}
+
+
+@sellalo.get("/dificultad")
+def dificultad():
+    return _ok(**_cuerpo_dificultad(_ctx()))
+
+
+@sellalo.post("/dificultad/proponer")
+def proponer_dificultad():
+    d = datos()
+    valor = d.get("dificultad")
+    if type(valor) is not int:
+        raise ErrorEntrada(f"La dificultad debe ser un entero entre {DIF_MIN} y {DIF_MAX}.")
+    ajuste = _ctx().ajustes.proponer(valor)
+    if ajuste["estado"] == "pendiente":
+        mensaje = "Ajuste firmado y enviado a pendientes: se aplicará desde el bloque siguiente al que lo incluya."
+    else:
+        mensaje = (f"Ajuste propuesto: esperando firmas (1/{ajuste['umbral']}). Se avisó a los demás laboratorios.")
+    return _ok(mensaje, ajuste=ajuste)
+
+
+@sellalo.post("/dificultad/<id_ajuste>/firmar")
+def firmar_ajuste(id_ajuste):
+    ajuste = _ctx().ajustes.firmar(id_ajuste)
+    if ajuste["estado"] == "pendiente":
+        mensaje = "Firma agregada: el ajuste alcanzó la mayoría y pasó a pendientes."
+    else:
+        mensaje = f"Firma agregada ({len(ajuste['firmas'])}/{ajuste['umbral']})."
+    return _ok(mensaje, ajuste=ajuste)
+
+
 @sellalo.get("/estado")
 def estado():
     ctx = _ctx()
@@ -315,7 +360,7 @@ def estado():
         red={"nombre": nodo.genesis["parametros"].get("nombre", "Sellalo"), "hash_genesis": nodo.hash_genesis,
              "puerto_p2p": servidor.puerto if servidor else ctx.puerto_p2p, "direcciones": _direcciones_locales()},
         laboratorios=[{"id": nid, "clave_publica": c["clave_publica"]} for nid, c in cuentas.items()],
-        sellos_en_firma=en_firma, solicitudes=ctx.coordinador.solicitudes(),
+        sellos_en_firma=en_firma, solicitudes=ctx.coordinador.solicitudes(), dificultad=_cuerpo_dificultad(ctx),
         ataques=ataques_sellalo.catalogo(),
         laboratorio_ataques=bool(current_app.config.get("LABORATORIO_ATAQUES")), umbral_max_autores=5,
         limites={"dificultad": [DIF_MIN, DIF_MAX], "titulo": TITULO_MAX, "investigador": INVESTIGADOR_MAX,

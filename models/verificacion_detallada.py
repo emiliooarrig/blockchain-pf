@@ -21,6 +21,7 @@ import copy
 import time
 
 from models import merkle
+from models.ajuste_dificultad import es_ajuste, firmas_validas as firmas_validas_ajuste, id_ajuste, mayoria
 from models.bloque import (ErrorValidacion, es_entero, hash_bloque, id_transaccion, serializar)
 from models.cripto import LARGO_FIRMA_HEX, es_hex, verificar
 from models.errores import ErrorEntrada
@@ -60,8 +61,37 @@ def _hex_a_bytes(h) -> bytes | None:
     return bytes.fromhex(h) if es_hex(h, 64) else None
 
 
-def _comprobar_tx(tx, indice: int, claves: dict) -> dict:
+def _comprobar_ajuste(tx, indice: int, claves: dict, dif_anterior) -> dict:
+    """Detalle de un ajuste de dificultad: firmas de laboratorios del génesis y mayoría (más de la mitad)."""
+    try:
+        firmas = tx["firmas"] if isinstance(tx["firmas"], dict) else {}
+        validas = set(firmas_validas_ajuste(tx, claves))
+        try:
+            tid = id_ajuste(tx)
+        except (KeyError, TypeError, ValueError):
+            tid = None
+        detalle = [{"autor": l, "firmo": l in firmas, "valida": l in validas} for l in claves]
+        ajenas = [l for l in firmas if l not in claves]
+        firma_ok = not ajenas and len(validas) == len(firmas) and tx.get("proponente") in firmas
+        necesarias = mayoria(len(claves))
+        alcanzado = len(validas) >= necesarias
+        dif = tx.get("dificultad")
+        rango_ok = es_entero(dif) and DIF_MIN <= dif <= DIF_MAX and dif != dif_anterior
+        return {"indice": indice, "tipo": "ajuste_dificultad", "id": tid,
+                "ok": bool(firma_ok and alcanzado and rango_ok), "firma": bool(firma_ok),
+                "ajuste": {"dificultad": dif, "dificultad_anterior": dif_anterior, "proponente": tx.get("proponente"),
+                           "firmas": detalle, "necesarias": necesarias, "alcanzado": bool(alcanzado),
+                           "firmas_ajenas": ajenas, "valido": bool(rango_ok)},
+                "multifirma": None}
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return {"indice": indice, "tipo": "ajuste_dificultad", "id": None, "ok": False, "firma": False,
+                "ajuste": None, "multifirma": None}
+
+
+def _comprobar_tx(tx, indice: int, claves: dict, dif_anterior=None) -> dict:
     """Detalle de una transacción: tipo, id, ok, firma y (en sellos) el detalle por autor."""
+    if es_ajuste(tx):
+        return _comprobar_ajuste(tx, indice, claves, dif_anterior)
     if es_sello(tx):
         try:
             autores = list(tx["autores"])
@@ -92,6 +122,7 @@ def _comprobar_tx(tx, indice: int, claves: dict) -> dict:
 
 
 def _comprobar_bloque(b, anterior, claves: dict, dif_red) -> dict:
+    """`dif_red` es la dificultad vigente que el bloque debe usar (None si el génesis no la fija)."""
     errores = []
     try:
         hash_ok = hash_bloque(b) == b.get("hash")
@@ -120,7 +151,7 @@ def _comprobar_bloque(b, anterior, claves: dict, dif_red) -> dict:
     if not firma_ok:
         errores.append("la firma del minero no corresponde al proponente")
     txs_raw = b.get("transacciones")
-    txs = [_comprobar_tx(tx, i, claves) for i, tx in enumerate(txs_raw if isinstance(txs_raw, list) else [])]
+    txs = [_comprobar_tx(tx, i, claves, dif_red) for i, tx in enumerate(txs_raw if isinstance(txs_raw, list) else [])]
     txs_ok = isinstance(txs_raw, list) and all(t["ok"] for t in txs)
     if not txs_ok:
         malas = [str(t["indice"]) for t in txs if not t["ok"]]
@@ -146,6 +177,7 @@ def verificar_cadena_detallada(cadena, hash_genesis: str) -> dict:
     claves = {n: c.get("clave_publica") for n, c in cuentas.items() if isinstance(c, dict)}
     params = genesis.get("parametros") if isinstance(genesis.get("parametros"), dict) else {}
     dif_red = params.get("dificultad")
+    vigente, ajustes = dif_red, []
     if gen_ok is False:
         primer_error = {"bloque": 0, "comprobacion": "hash", "motivo": "el génesis no es el de esta red o fue alterado"}
     if isinstance(cadena, list):
@@ -156,8 +188,15 @@ def verificar_cadena_detallada(cadena, hash_genesis: str) -> dict:
                                 "comprobaciones": {c: False for c in COMPROBACIONES},
                                 "errores": ["el bloque no es un objeto válido"]})
                 continue
-            info = _comprobar_bloque(b, ant, claves, dif_red)
+            info = _comprobar_bloque(b, ant, claves, vigente)
             bloques.append(info)
+            if vigente is not None:           # un ajuste correcto rige desde el bloque siguiente
+                for t in info["transacciones"]:
+                    if t["tipo"] == "ajuste_dificultad" and t["ok"]:
+                        ajustes.append({"bloque": b.get("numero"), "id": t["id"], **{
+                            k: t["ajuste"][k] for k in ("dificultad", "dificultad_anterior", "proponente")}})
+                        vigente = t["ajuste"]["dificultad"]
+                        break
             if primer_error is None and not info["ok"]:
                 c = next(k for k in COMPROBACIONES if not info["comprobaciones"][k])
                 primer_error = {"bloque": b.get("numero"), "comprobacion": c, "motivo": info["errores"][0]}
@@ -174,7 +213,7 @@ def verificar_cadena_detallada(cadena, hash_genesis: str) -> dict:
     return {"valida": bool(itemizado and otras["ok"]), "duracion_ms": round((time.perf_counter() - t0) * 1000, 1),
             "copia_alterada": False, "alteracion": None,
             "genesis": {"hash": genesis.get("hash"), "ok": gen_ok}, "dificultad_red": dif_red,
-            "bloques": bloques, "otras_reglas": otras, "primer_error": primer_error}
+            "dificultad_final": vigente, "ajustes": ajustes, "bloques": bloques, "otras_reglas": otras, "primer_error": primer_error}
 
 
 # ---------------------------------------------------------------- alteraciones sobre una copia
