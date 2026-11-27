@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sellalo · Ataques</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="sellalo">
+{% set vista = 'ataques' %}{% set con_estado = true %}
+{% include "_encabezado.html" %}
+
+<main id="app" class="vista-simple">
+  {% if not modo_nodo %}
+  <div class="card aviso-modo" role="status">
+    <strong>Esta vista requiere el modo nodo.</strong> Este proceso corre como simulador, así que el laboratorio de ataques no está disponible (la API responde 409).
+    Arranca el nodo con <code>--modo nodo --laboratorio-ataques</code> o levanta una red local con <code>python scripts/lanzar_red_local.py --labs 3 --lanzar</code>.
+  </div>
+  {% endif %}
+  <div id="atq-desactivado" class="card aviso-modo" role="status" hidden>
+    <strong>El laboratorio está desactivado en este nodo;</strong> arráncalo con <code>--laboratorio-ataques</code> (los scripts de demo ya lo pasan).
+  </div>
+
+  <section class="card" id="seccion-ataques" aria-labelledby="t-ataques"{% if not modo_nodo %} hidden{% endif %}>
+    <h2 id="t-ataques">Laboratorio de ataques</h2>
+    <p class="section-hint">Cada ataque fabrica una manipulación sobre una <strong>copia</strong> de la cadena y la entrega al propio nodo o a sus pares; la cadena honesta no cambia.
+      Demuestra R2 (la verificación detecta la alteración) y R4 (el consenso la rechaza en toda la red).</p>
+
+    <div class="atq-layout">
+      <div>
+        <form id="form-ataque" class="form" autocomplete="off">
+          <fieldset class="atq-catalogo" id="atq-catalogo">
+            <legend>Ataque</legend>
+            <p class="muted small" id="atq-cargando">Cargando catálogo…</p>
+          </fieldset>
+          <label>Destino
+            <select id="in-ataque-destino" name="destino">
+              <option value="local">Sólo este nodo</option>
+              <option value="red">Este nodo y la red</option>
+            </select></label>
+          <div class="row-buttons">
+            <button class="btn btn-danger" type="submit" id="btn-ataque" disabled>Lanzar ataque</button>
+          </div>
+        </form>
+        <div id="ataque-resultado" class="resultado" hidden aria-live="polite"></div>
+      </div>
+
+      <aside class="atq-lateral" aria-labelledby="t-atq-cadena">
+        <h3 class="subhead" id="t-atq-cadena">Estado de la cadena</h3>
+        <table class="table atq-tabla">
+          <thead><tr><th></th><th>Antes</th><th>Después</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Altura</th><td id="atq-a-altura">–</td><td id="atq-d-altura">–</td></tr>
+            <tr><th scope="row">Punta</th><td class="mono" id="atq-a-punta">–</td><td class="mono" id="atq-d-punta">–</td></tr>
+            <tr><th scope="row">Sincronizados</th><td id="atq-a-sync">–</td><td id="atq-d-sync">–</td></tr>
+          </tbody>
+        </table>
+        <p class="small muted" id="atq-igual">Lanza un ataque para comparar la cadena antes y después.</p>
+      </aside>
+    </div>
+  </section>
+
+  <section class="card" id="seccion-historial" aria-labelledby="t-historial"{% if not modo_nodo %} hidden{% endif %}>
+    <h2 id="t-historial">Historial de esta sesión</h2>
+    <p class="section-hint">Sólo vive en esta página: al recargarla se borra.</p>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Hora</th><th>Ataque</th><th>Destino</th><th>Rechazado</th><th>Motivo</th><th>Enviados</th><th>Cadena intacta</th></tr></thead>
+        <tbody id="atq-historial"><tr><td colspan="7" class="muted">Aún no has lanzado ataques.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<script src="{{ url_for('static', filename='comun.js') }}"></script>
+<script src="{{ url_for('static', filename='ataques.js') }}"></script>
+</body>
+</html>

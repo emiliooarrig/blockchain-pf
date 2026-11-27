@@ -1,4 +1,4 @@
-from models.block import Block
-from models.blockchain import Blockchain
-from models.mining import MiningRace
-from models.network import PeerNode
+"""Núcleo del simulador: toda la lógica de consenso se ejecuta y se prueba sin Flask."""
+from models.errores import ErrorEntrada, ErrorEstado
+from models.red import Red
+from models.simulador import Simulador

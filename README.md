@@ -1,23 +1,26 @@
-# blockchain-pf · LabChain
+# Sellalo · Blockchain de sellado de prioridad científica
 
-Blockchain de **sellado de tiempo para cuadernos de laboratorio**, pensado para demostrar prioridad científica. Cada entrada del cuaderno se resume con **SHA-256**, recibe un sello de tiempo UTC y se guarda en un bloque que se mina con **prueba de trabajo** en una carrera entre dos mineros: **Alice** y **Bob**.
+Red **blockchain con Proof of Work** para demostrar **quién tuvo primero un resultado científico**. Cada laboratorio
+es un nodo: sella el **hash SHA-256** de un documento (el contenido nunca sale de su PC), sus co-autores lo firman
+(**multifirma k-de-n**), la red lo mina y lo **replica** en todos los nodos, y cualquiera puede comprobar la prioridad
+con un **certificado verificable sin conexión**.
 
-Hecho con **Flask** siguiendo el patrón **MVC**. Toda la lógica (hashes, minado, validación) corre en Python con `hashlib` y `hmac`; el navegador solo muestra el estado que calcula el servidor.
+Hecho en **Python + Flask**. El proyecto tiene dos modos:
 
-## Funcionalidades
+| Modo | Para qué | Cómo se abre |
+|---|---|---|
+| **Nodo Sellalo** (proyecto final) | Red real de laboratorios por TCP: sellos, co-firmas, minado, cadena, verificación, certificados, ataques, rúbrica y auditoría | `python app.py --modo nodo …` (o los scripts de abajo) |
+| **Simulador** (medio término) | 10–20 nodos en memoria compitiendo con PoW por rondas | `python app.py` o `flask run` |
 
-- **Registro de entradas:** investigador, título y contenido. Se calcula el SHA-256 del contenido y se guarda la fecha y hora de recepción.
-- **Conexión TCP/IP entre dos PCs:** cada PC es un minero (Alice o Bob). Una se conecta a la IP de la otra dentro de la red local; la página muestra el esquema de conexión, la latencia y un registro de eventos.
-- **Minado distribuido Alice vs Bob:** solo se habilita con la conexión activa. Cada PC mina con su minero; la primera que encuentra un hash con N ceros iniciales se lo envía a la otra, que se detiene, y ambas anuncian quién ganó.
-- **Cadena visual:** bloques enlazados con su sello de tiempo, minero, dificultad, nonce, hash previo, raíz de Merkle y hash SHA-256.
-- **Validación:** cada bloque se revisa (contenido, raíz de Merkle, hash, dificultad, enlace y orden de fechas) y se marca como válido o inválido.
-- **Simular alteración:** modifica el contenido de un bloque para ver cómo se invalida la cadena a partir de ese punto.
-- **Verificar prioridad:** pega un documento y el sistema indica si su SHA-256 está sellado, en qué bloque y con qué fecha.
+> **¿Abriste `http://127.0.0.1:5000` y no ves la rúbrica?** Estás en el **modo simulador**. La red Sellalo, la rúbrica,
+> el laboratorio de ataques y la auditoría están en el **modo nodo**: sigue el [inicio rápido](#inicio-rápido).
+
+---
 
 ## Requisitos
 
-- Python **3.10 o superior**
-- `pip`
+- **Python 3.10 o superior** (probado con 3.14) y `pip`.
+- Windows, macOS o Linux. Para usar varias PCs: misma red local y el puerto P2P abierto en el firewall.
 
 ## Instalación
 
@@ -25,130 +28,228 @@ Hecho con **Flask** siguiendo el patrón **MVC**. Toda la lógica (hashes, minad
 git clone https://github.com/emiliooarrig/blockchain-pf.git
 cd blockchain-pf
 
-python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+python -m venv .venv
+# Windows (PowerShell):  .venv\Scripts\Activate.ps1
+# macOS / Linux:         source .venv/bin/activate
 
 pip install -r requirements.txt
 ```
 
-## Ejecución
+> Todos los comandos de este README se ejecutan **desde la carpeta del proyecto y con el entorno virtual activado**.
+
+---
+
+## Inicio rápido
+
+### Opción 1 · Demostración completa en un comando (recomendada)
+
+Levanta 3 laboratorios (LAB-A, LAB-B, LAB-C) en tu PC, recorre todo el caso de uso (sello multifirma, co-firma,
+minado, réplica, certificado, ataque rechazado, partición de red y reinicio de un nodo) y **deja los nodos abiertos**:
 
 ```bash
-python app.py
+python scripts/demo_e2e.py --dejar-abiertos
 ```
 
-Abre **http://127.0.0.1:5000** en el navegador. Además de la página, la app abre un servidor **TCP en el puerto 5050** para conectarse con la otra PC.
+Abre en el navegador:
 
-Opciones:
+| Laboratorio | URL |
+|---|---|
+| LAB-A | http://127.0.0.1:5101 |
+| LAB-B | http://127.0.0.1:5102 |
+| LAB-C | http://127.0.0.1:5103 |
+
+Los nodos quedan desbloqueados y con datos. Para cerrarlos, pulsa **Ctrl+C** en la terminal.
+Si quieres poder volver a desbloquearlos desde la interfaz, fija tú la contraseña con una variable de entorno:
+
+```bash
+# Windows (PowerShell)
+$env:SELLALO_PW = "una-contraseña-larga"
+python scripts/demo_e2e.py --dejar-abiertos --contrasena-env SELLALO_PW
+
+# macOS / Linux
+SELLALO_PW="una-contraseña-larga" python scripts/demo_e2e.py --dejar-abiertos --contrasena-env SELLALO_PW
+```
+
+Sin `--dejar-abiertos`, el script recorre el guion, imprime la evidencia de cada paso y cierra los nodos (sirve como
+**plan B** de la presentación).
+
+### Opción 2 · Red local vacía para usarla tú mismo
+
+```bash
+python scripts/lanzar_red_local.py --labs 3 --lanzar
+```
+
+- La primera vez pide una **contraseña** (mínimo 10 caracteres) y crea, en `data/demo/`, la identidad cifrada de cada
+  laboratorio y el **génesis** compartido. Las siguientes veces reutiliza esos archivos.
+- Arranca un proceso por laboratorio: LAB-A en http://127.0.0.1:5001, LAB-B en :5002, LAB-C en :5003
+  (P2P en 6001–6003). **Ctrl+C** los cierra todos.
+- En cada página: **Identidad → Desbloquear** con la contraseña. Al desbloquearse, el nodo se conecta solo con los
+  otros dos.
+
+Opciones útiles: `--labs 4`, `--carpeta data/otra-red`, `--puerto-base 5201 --puerto-p2p-base 6201`
+(para tener dos redes a la vez) y `--contrasena-env VAR`.
+
+### Opción 3 · Simulador del medio término
+
+```bash
+python app.py        # o: flask run
+```
+
+Abre http://127.0.0.1:5000. Simulación en memoria de 10 a 20 nodos con PoW (nonces disjuntos, desempate por hash
+menor, recompensa con 6 confirmaciones). No tiene red real ni rúbrica.
+
+---
+
+## Recorrido por la interfaz del nodo
+
+Cada nodo tiene cuatro vistas, en las pestañas del encabezado (**Nodo · Rúbrica · Ataques · Auditoría**) más el
+**Simulador**:
+
+| Vista | Qué hay |
+|---|---|
+| **Nodo** (`/`) | Barra de 5 grupos: **Identidad y red** (desbloqueo, protección de la clave, pares, consistencia, consenso) · **Sellos** (sellar un documento, co-firmas, prioridad y certificados) · **Minado y cadena** (con el panel **Dificultad de la red**) · **Verificación** (auditar tu copia y simular alteraciones) · **Cuentas** (saldos y bitácora) |
+| **Rúbrica** (`/rubrica`) | Tablero en vivo de cada criterio de la rúbrica (R1–R8 y punto excepcional) con su evidencia, y el recorrido del caso de uso |
+| **Ataques** (`/ataques`) | Laboratorio de ataques: fabrica una manipulación sobre una copia (sello alterado, firma falsa, raíz de Merkle falsa, multifirma incompleta…) y muestra cómo la rechazan este nodo o sus pares. Requiere arrancar con `--laboratorio-ataques` (los scripts ya lo hacen) |
+| **Auditoría** (`/auditoria`) | Hallazgos de la auditoría del código con IA, su decisión, el commit que los corrige y la prueba |
+
+**Flujo típico** (con la opción 2):
+
+1. Desbloquea los tres nodos.
+2. En LAB-A, **Sellos → Sellar documento**: elige un archivo, título, investigador, autores (LAB-A, LAB-B, LAB-C) y umbral 2.
+3. En LAB-B, **Co-firmas → Firmar**. El sello pasa a pendientes en los tres nodos.
+4. En cualquier nodo, **Minado → Iniciar minado**. El bloque se replica y los tres muestran la misma punta.
+5. **Prioridad y certificado**: sube el documento para ver quién lo selló primero y descarga el certificado.
+6. **Verificación → Simular alteración** y la vista **Ataques**: comprueba que los datos alterados se rechazan.
+7. La vista **Rúbrica** se va marcando sola a medida que demuestras cada criterio.
+
+### Cambiar la dificultad de la red
+
+La dificultad (ceros hexadecimales iniciales del hash) la fija el génesis, pero se puede cambiar **en la red viva y
+conservando la cadena**, siempre por acuerdo de la mayoría de los laboratorios:
+
+1. En un nodo, **Minado y cadena → Dificultad de la red**: elige la nueva dificultad (1 a 6) y pulsa **Proponer ajuste**.
+   El panel muestra el tiempo esperado por bloque (con la velocidad de hashes de tu PC si ya minaste).
+2. En otro nodo aparece la propuesta en **Propuestas en firma**: pulsa **Firmar**. Con la mayoría (2 de 3) el ajuste pasa
+   a pendientes en todos los nodos.
+3. Cualquiera mina un bloque: el ajuste queda registrado en la cadena y **se aplica desde el bloque siguiente**. El
+   historial de ajustes y el detalle del bloque lo muestran, y los certificados nuevos lo incluyen para que el verificador
+   independiente lo compruebe.
+
+Cada nivel multiplica el trabajo por 16: la dificultad 6 son ≈ 16,7 millones de hashes por bloque (16^6).
+
+## Verificar un certificado sin conexión
+
+El certificado descargado se comprueba con un script independiente (sólo biblioteca estándar y `cryptography`; no
+usa el resto del proyecto):
+
+```bash
+python verificar_certificado.py certificado-xxxxxxxx.json --documento articulo.pdf --genesis <hash-del-génesis>
+```
+
+El hash del génesis aparece en el encabezado de cada nodo. Sin `--genesis` el resultado es **no concluyente**, porque
+cualquiera podría fabricar una red propia. Códigos de salida: 0 válido · 1 no válido · 2 archivo ilegible · 3 no concluyente.
+
+## Varias PCs en la misma red
+
+Ejemplo con dos laboratorios, `LAB-A` (PC 1, IP 192.168.1.10) y `LAB-B` (PC 2, IP 192.168.1.11):
+
+1. **En cada PC**, crea su identidad. La clave privada se guarda **cifrada** con tu contraseña y nunca sale de esa PC:
+   ```bash
+   python scripts/crear_identidad.py LAB-A --salida data/LAB-A/clave.json     # en la PC 1
+   python scripts/crear_identidad.py LAB-B --salida data/LAB-B/clave.json     # en la PC 2
+   ```
+2. **En una sola PC**, crea el génesis. Copia antes ahí el `clave.json` del otro laboratorio: el script sólo lee su
+   clave pública.
+   ```bash
+   python scripts/inicializar_red.py --lab LAB-A=data/LAB-A/clave.json --lab LAB-B=data/LAB-B/clave.json \
+       --salida red/genesis.json --dificultad 4 --nombre "Red Sellalo"
+   ```
+   Después copia `red/genesis.json` a la otra PC, en la misma ruta.
+3. **En cada PC**, arranca su nodo:
+   ```bash
+   # PC 1
+   python app.py --modo nodo --nodo LAB-A --datos data/LAB-A --genesis red/genesis.json \
+       --puerto 5001 --puerto-p2p 6001 --pares 192.168.1.11:6001 --laboratorio-ataques
+   # PC 2
+   python app.py --modo nodo --nodo LAB-B --datos data/LAB-B --genesis red/genesis.json \
+       --puerto 5001 --puerto-p2p 6001 --pares 192.168.1.10:6001 --laboratorio-ataques
+   ```
+4. Abre http://127.0.0.1:5001 en cada PC y desbloquea el nodo. También puedes conectar pares a mano en **Identidad y red**.
+
+**Firewall:** permite conexiones entrantes al puerto P2P (6001). En Windows acepta el aviso de Windows Defender; en
+macOS, "Permitir conexiones entrantes a Python". La página web sólo escucha en `127.0.0.1`: lo único expuesto a la red
+es el puerto P2P, y su saludo va autenticado con la clave de cada laboratorio.
+
+### Opciones de `app.py`
 
 | Opción | Por defecto | Descripción |
 |---|---|---|
-| `--port` | `5000` | Puerto de la página web |
-| `--peer-port` | `5050` | Puerto TCP para la otra PC |
-| `--miner` | — | Identidad inicial: `Alice` o `Bob` |
-| `--data` | `data/chain.json` | Archivo donde se guarda la cadena |
+| `--modo simulador\|nodo` | `simulador` | Modo de la aplicación |
 | `--host` | `127.0.0.1` | Interfaz de la página web |
+| `--puerto` (`--port`) | `5000` | Puerto de la página web |
+| `--nodo` | — | Id del laboratorio (p. ej. `LAB-A`) |
+| `--datos` | — | Carpeta del nodo (cadena, pendientes, sellos en firma) |
+| `--genesis` | — | Archivo `genesis.json` de la red |
+| `--clave` | `<datos>/clave.json` | Almacén de claves cifrado |
+| `--puerto-p2p` | `6000` | Puerto TCP de la red entre nodos |
+| `--pares` | — | Pares iniciales `ip:puerto,ip:puerto` |
+| `--laboratorio-ataques` | desactivado | Habilita la vista y la ruta de ataques de demostración |
 
-Opcionalmente define una clave fija para las sesiones de Flask (si no, se genera una aleatoria en cada arranque):
+---
 
-```bash
-export SECRET_KEY="una-clave-larga-y-secreta"   # Windows: set SECRET_KEY=...
-```
-
-## Minado con dos PCs
-
-1. Conecta **ambas PCs a la misma red** (mismo Wi-Fi o switch).
-2. En cada PC instala el proyecto y ejecuta `python app.py`.
-3. **Firewall:** permite conexiones entrantes al puerto **5050**. En macOS acepta el aviso "¿Permitir conexiones entrantes a Python?"; en Windows, "Permitir acceso" en el aviso de Windows Defender.
-4. En la sección **2 · Conexión TCP/IP** de cada PC:
-   - **a.** Elige la identidad: una PC es **Alice** y la otra **Bob** (si la que recibe la conexión no eligió, se le asigna la contraria).
-   - **b.** Toma nota de la **IP** y el **puerto** que muestra la PC receptora.
-   - **c.** En la **otra** PC escribe esa IP y ese puerto y pulsa **Conectar**. Solo una de las dos necesita conectarse.
-5. Al conectarse, ambas PCs muestran **Conectado**, el diagrama se enlaza y se sincronizan la cadena y las entradas pendientes.
-6. Registra una entrada en cualquiera de las dos PCs (aparece en ambas) y pulsa **Iniciar minado** en cualquiera. Las dos empiezan a minar a la vez; cada pantalla muestra a Alice y a Bob en vivo, y ambas anuncian quién encontró el bloque primero.
-
-Para probarlo en **una sola computadora**, abre dos terminales con puertos y archivos distintos y conecta una con la otra usando `127.0.0.1` y el puerto `5051`:
+## Pruebas
 
 ```bash
-python app.py --miner Alice
-python app.py --miner Bob --port 5001 --peer-port 5051 --data data/bob.json
+python -m pytest -q
 ```
 
-## Uso
+Unas 840 pruebas (≈ 2 min). Incluyen una red real de 3 procesos que recorre el caso de uso completo
+(`tests/test_e2e_red.py`), pruebas adversariales de la red y de la API, y una prueba por cada hallazgo corregido de la
+auditoría (`tests/test_auditoria_g*.py`).
 
-1. **Registrar entrada:** llena investigador, título y contenido y pulsa *Registrar proyecto*. La entrada aparece en *Entradas pendientes de sellar* (también en la otra PC si están conectadas).
-2. **Conectar:** sigue los pasos de [Minado con dos PCs](#minado-con-dos-pcs). Mientras no haya conexión, el minado está bloqueado.
-3. **Minar:** elige la dificultad (3 a 6 ceros) y pulsa *Iniciar minado*. Verás en vivo el nonce, los intentos y los hashes por segundo de Alice y de Bob (cada tarjeta indica si es esta PC o la remota). Cuando uno encuentra el hash, ambos se detienen y aparece el ganador; la página se recarga con el nuevo bloque.
-4. **Revisar la cadena:** en *Cadena de bloques* cada bloque muestra sus datos y las entradas que selló (despliega *entrada(s) sellada(s)*).
-5. **Verificar prioridad:** en la sección 5 pega el contenido **exacto** de un documento. Si está sellado, se muestra el bloque y la fecha; un solo carácter distinto produce otro hash.
-6. **Demostrar integridad:** pulsa *Simular alteración* en un bloque; ese bloque y los siguientes se marcan como inválidos.
-7. **Empezar de cero:** desconéctate y pulsa *Reiniciar cadena*; se crea un nuevo bloque génesis y se borran las entradas pendientes.
+## Problemas frecuentes
 
-Tiempos aproximados de minado con dos PCs: dificultad 5 ≈ 0.5–1 s, dificultad 6 ≈ 5–15 s (varía según los equipos y la suerte). Con dificultad 3 el hash aparece en milisegundos y es común que ambas PCs lo encuentren casi a la vez (se resuelve por hash menor).
+| Síntoma | Causa y solución |
+|---|---|
+| En `:5000` no aparecen la rúbrica ni las pestañas nuevas | Es el **modo simulador**. Usa la opción 1 o 2. Si el servidor estaba abierto antes de actualizar el código, reinícialo: Flask no recarga plantillas en caliente. |
+| `Address already in use` / el puerto está ocupado | Ya hay otra red o servidor abierto. Ciérralo con Ctrl+C o usa otros puertos (`--puerto-base`, `--http-base`). |
+| "Contraseña incorrecta" al desbloquear | La identidad se creó con otra contraseña. Para la demo local basta borrar `data/demo/` y volver a lanzar (se crea una red nueva). |
+| Los nodos no se conectan entre PCs | Revisa el firewall del puerto P2P, que ambos usen **el mismo** `genesis.json` y que las IP de `--pares` sean las correctas. |
+| `/ataques` dice que el laboratorio está desactivado | Arranca el nodo con `--laboratorio-ataques`. |
 
 ## Estructura
 
 ```
 blockchain-pf/
-├── app.py                              # Punto de entrada: crea la app Flask
-├── requirements.txt
-├── models/                             # Modelo
-│   ├── crypto.py                       # SHA-256, raíz de Merkle, sellos de tiempo
-│   ├── block.py                        # Bloque y entradas del cuaderno
-│   ├── blockchain.py                   # Cadena, validación, verificación y persistencia
-│   ├── mining.py                       # Carrera de minado distribuida Alice vs Bob
-│   └── network.py                      # Conexión TCP/IP con la otra PC (protocolo y sincronización)
-├── controllers/
-│   ├── blockchain_controller.py        # Rutas de entradas, minado, cadena y verificación
-│   └── network_controller.py           # Rutas de identidad, conexión y desconexión
-├── views/                              # Vista
-│   ├── templates/index.html
-│   └── static/
-│       ├── styles.css                  # Paleta de azules y estilos
-│       └── mining.js                   # Solo consulta y muestra el estado (minado y conexión)
-└── data/chain.json                     # Cadena guardada (se crea al arrancar, ignorada por git)
+├── app.py                      # Flask: modo simulador o modo nodo
+├── verificar_certificado.py    # verificador independiente de certificados
+├── controllers/                # rutas: simulador (api.py) y nodo Sellalo (sellalo.py)
+├── models/                     # núcleo, se prueba sin Flask
+│   ├── cripto.py, keystore.py  # SHA-256, Ed25519, almacén de claves (scrypt + AES-256-GCM)
+│   ├── bloque.py, validacion.py, merkle.py, pow.py
+│   ├── multifirma.py           # sellos k-de-n
+│   ├── nodo_completo.py        # nodo real: cadena, persistencia, minado, reorganización
+│   ├── red_p2p.py              # red TCP entre nodos (saludo autenticado, difusión, sincronización)
+│   ├── coordinador_sellos.py   # co-firmas entre laboratorios
+│   ├── certificado.py, verificacion_detallada.py, rubrica.py, ataques_sellalo.py
+│   └── red.py, simulador.py, ataques.py   # simulador PoW en memoria
+├── views/                      # plantillas y JS/CSS de las vistas
+├── scripts/                    # demo_e2e, lanzar_red_local, crear_identidad, inicializar_red, estado_auditoria
+├── tests/                      # pytest
+└── docs/                       # plan, contratos, evidencia por rubro, auditoría con IA
 ```
 
-## Cómo funciona
+## Documentación
 
-- **Entrada:** `content_hash = SHA-256(contenido)`. El hash de la entrada combina autor, título, `content_hash` y fecha de recepción.
-- **Bloque:** la cabecera contiene índice, sello de tiempo, hash previo, raíz de Merkle de las entradas, dificultad y minero. `hash = SHA-256(cabecera + nonce)`.
-- **Prueba de trabajo:** se busca un `nonce` tal que el hash empiece con N ceros. Alice y Bob minan la misma cabecera (mismo sello de tiempo y raíz de Merkle, con su nombre como minero), cada uno en su PC.
-- **Conexión TCP/IP:** cada PC abre un socket TCP (puerto 5050). Los mensajes son JSON, uno por línea, sobre una conexión persistente:
-
-  | Mensaje | Uso |
-  |---|---|
-  | `HELLO` / `HELLO_ACK` / `HELLO_REJECT` | Saludo con identidad, cadena y entradas pendientes |
-  | `PING` / `PONG` | Latencia y detección de caídas (se desconecta tras 12 s sin respuesta) |
-  | `ENTRY` / `PENDING` / `CHAIN_SYNC` | Sincronización de entradas y de la cadena |
-  | `MINE_START` / `MINE_ACK` | Inicio coordinado del minado con la plantilla del bloque |
-  | `PROGRESS` | Progreso del minero (cada 0.25 s) para verlo en la otra PC |
-  | `BLOCK_FOUND` | Bloque encontrado: la otra PC lo valida, se detiene y lo agrega |
-  | `MINE_STOP` / `BYE` | Detener el minado / desconexión voluntaria |
-
-- **Sincronización:** al conectarse, ambas PCs adoptan la misma cadena: la válida más larga y, si empatan, la de hash de punta menor. Las entradas de una cadena descartada vuelven a pendientes.
-- **Empates:** si ambas encuentran un bloque de la misma altura casi a la vez, las dos conservan el de **hash menor**, así que siempre coinciden en el ganador.
-- **Datos de la red:** todo bloque o entrada recibido se valida (estructura, SHA-256 del contenido, raíz de Merkle, hash, dificultad y enlace) antes de aceptarse.
-- **Validación:** se recalculan los hashes de contenido, la raíz de Merkle y el hash de cada bloque, y se comprueba la dificultad, el enlace con el bloque anterior y el orden de los sellos de tiempo.
-
-## Rutas
-
-| Método | Ruta                      | Descripción                          |
-|--------|---------------------------|--------------------------------------|
-| GET    | `/`                       | Página principal                     |
-| POST   | `/entries`                | Registrar una entrada                |
-| POST   | `/mine`                   | Iniciar la carrera de minado         |
-| POST   | `/mine/stop`              | Detener el minado                    |
-| GET    | `/api/status`             | Estado del minado y de la conexión en JSON |
-| POST   | `/network/identity`       | Elegir identidad (Alice o Bob)       |
-| POST   | `/network/connect`        | Conectar con la otra PC (IP y puerto) |
-| POST   | `/network/disconnect`     | Cerrar la conexión                   |
-| POST   | `/verify`                 | Verificar un documento               |
-| POST   | `/blocks/<index>/tamper`  | Simular alteración de un bloque      |
-| POST   | `/chain/reset`            | Reiniciar la cadena                  |
+- [docs/EVIDENCIA_RUBRICA.md](docs/EVIDENCIA_RUBRICA.md): cada criterio de la rúbrica → código, pruebas y paso de la demo.
+- [docs/RUBRICA_EN_INTERFAZ.md](docs/RUBRICA_EN_INTERFAZ.md): cómo se visualiza cada criterio en la interfaz.
+- [docs/diseno/CONTRATOS.md](docs/diseno/CONTRATOS.md): formatos de bloque, sello, almacén de claves, protocolo P2P y API.
+- [docs/auditoria/](docs/auditoria/): auditoría del código con IA (instrucciones, respuestas, hallazgos, triaje y estado).
+- [docs/PLAN_PROYECTO_FINAL.md](docs/PLAN_PROYECTO_FINAL.md): plan del proyecto final.
+- [docs/REPORTE.md](docs/REPORTE.md): reporte del medio término (simulador).
 
 ## Notas
 
-- La cadena se guarda en `data/chain.json`, así que se conserva entre reinicios del servidor.
-- `app.py` usa el servidor de desarrollo de Flask sin recargador automático (los hilos de minado y de red viven en un solo proceso). Es un proyecto académico y no está pensado para producción.
-- La página web solo escucha en `127.0.0.1`; lo único expuesto a la red es el puerto TCP 5050, y la conexión **no está cifrada ni autenticada**. Úsalo solo en una red local de confianza.
+- El único consenso es **Proof of Work**. Proof of Stake se eliminó el 2026-11-27.
+- `data/` está en `.gitignore`: ahí viven las identidades cifradas y las cadenas de cada nodo. Nunca se versionan.
+- Proyecto académico: usa el servidor de desarrollo de Flask y está pensado para una red local de confianza.

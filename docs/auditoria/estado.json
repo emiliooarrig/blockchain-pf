@@ -1,0 +1,984 @@
+{
+  "generado": "2026-11-27T19:04:26Z",
+  "resumen": {
+    "total": 62,
+    "por_decision": {
+      "C": 49,
+      "CP": 4,
+      "D": 2,
+      "NA": 5,
+      "RE": 2
+    },
+    "por_severidad": {
+      "Alta": 7,
+      "Media": 17,
+      "Baja": 38
+    },
+    "por_estado": {
+      "corregido": 15,
+      "justificado": 7,
+      "pendiente": 37,
+      "resuelto_por_eliminacion": 3
+    }
+  },
+  "hallazgos": [
+    {
+      "id": "AUD-001",
+      "titulo": "Faltas y vetos imputados a una identidad o IP sin autenticar",
+      "descripcion": "Faltas y vetos imputados a una identidad o IP sin autenticar. En el saludo `par.id` se asigna con el id declarado antes de probar la clave; las faltas del saludo se cargan a ese id y 5 faltas vetan al laboratorio real.",
+      "severidad": "Alta",
+      "categoria": "Seguridad",
+      "grupo": "G1-red",
+      "decision": "C",
+      "accion": "Antes del AUTH las faltas se cuentan sólo por IP (con tope propio y sin vetar loopback de forma global); a una identidad sólo se le imputan faltas después de autenticarla.",
+      "estado": "corregido",
+      "commits": [
+        "bf9b938"
+      ],
+      "prueba": "tests/test_auditoria_g1.py::test_aud_001_hello_falso_no_veta_a_la_identidad_real",
+      "pruebas": [
+        "tests/test_auditoria_g1.py::test_aud_001_hello_falso_no_veta_a_la_identidad_real",
+        "tests/test_auditoria_g1.py::test_aud_001_sondas_calladas_no_vetan_el_loopback"
+      ]
+    },
+    {
+      "id": "AUD-002",
+      "titulo": "Selección de cadena inconsistente: la rama con más trabajo y menos altura se ignora",
+      "descripcion": "Selección de cadena inconsistente: la rama con más trabajo y menos altura se ignora. `_recibir_bloque` descarta por altura bloques de una rama con más trabajo acumulado; sólo se sincroniza por trabajo en el saludo.",
+      "severidad": "Alta",
+      "categoria": "Error de lógica",
+      "grupo": "G1-red",
+      "decision": "C",
+      "accion": "Un bloque válido en formato/PoW que no está en mi cadena y no la extiende → `\"sincronizar\"` aunque su altura sea ≤ la mía; la sincronización decide por trabajo. Con límite de tasa (AUD-028).",
+      "estado": "corregido",
+      "commits": [
+        "7d54522"
+      ],
+      "prueba": "tests/test_auditoria_g1.py::test_aud_002_bloque_de_rama_con_mas_trabajo_pide_sincronizar",
+      "pruebas": [
+        "tests/test_auditoria_g1.py::test_aud_002_bloque_de_rama_con_mas_trabajo_pide_sincronizar",
+        "tests/test_auditoria_g1.py::test_aud_002_resumen_con_mas_trabajo_dispara_sincronizacion"
+      ]
+    },
+    {
+      "id": "AUD-003",
+      "titulo": "API HTTP del nodo sin autenticación, sin protección CSRF y sin validación de Host/Origin",
+      "descripcion": "API HTTP del nodo sin autenticación, sin protección CSRF y sin validación de Host/Origin. Ninguna ruta de `/api/sellalo/*` exige token, Origin ni Host; `datos()` acepta formularios (petición simple sin preflight); DNS rebinding posible.",
+      "severidad": "Alta",
+      "categoria": "Seguridad",
+      "grupo": "G2-api",
+      "decision": "C",
+      "accion": "Toda escritura a `/api/*` cuyo `Origin` no sea el del propio nodo, o con `Sec-Fetch-Site: cross-site`/`same-site`, se rechaza con 403 (los navegadores siempre envían `Origin` en un POST entre sitios); `Host` restringido a `127.0.0.1`/`localhost`/`[::1]`/`--host` (DNS rebinding). Los clientes sin navegador (curl, pruebas, demo) no envían `Origin` y siguen funcionando.",
+      "estado": "corregido",
+      "commits": [
+        "432f9ae"
+      ],
+      "prueba": "tests/test_auditoria_g2.py::test_aud_003_origin_ajeno_rechazado",
+      "pruebas": [
+        "tests/test_auditoria_g2.py::test_aud_003_origin_ajeno_rechazado",
+        "tests/test_auditoria_g2.py::test_aud_003_sec_fetch_site_ajeno_rechazado",
+        "tests/test_auditoria_g2.py::test_aud_003_host_ajeno_rechazado",
+        "tests/test_auditoria_g2.py::test_aud_003_interfaz_propia_y_clientes_sin_origin_funcionan",
+        "tests/test_auditoria_g2.py::test_aud_003_host_configurado_permitido"
+      ]
+    },
+    {
+      "id": "AUD-004",
+      "titulo": "La dificultad PoW la declara el minero y el mínimo es 1: reescritura de historia e inflación",
+      "descripcion": "La dificultad PoW la declara el minero y el mínimo es 1: reescritura de historia e inflación. `verificar_pow` sólo exige que la dificultad declarada esté en 1..6; no hay dificultad de red, reajuste ni límite de reorganización.",
+      "severidad": "Alta",
+      "categoria": "Error de lógica",
+      "grupo": "G3-nucleo",
+      "decision": "C",
+      "accion": "El génesis de la red Sellalo fija `parametros.dificultad`; todo bloque debe usar exactamente esa dificultad (el minero ya no la elige). `inicializar_red.py --dificultad` (por defecto 4). El simulador conserva la dificultad configurable que pide la guía. El límite residual (51 % del trabajo) se documenta.",
+      "estado": "corregido",
+      "commits": [
+        "376d50f",
+        "8b32f19"
+      ],
+      "prueba": "tests/test_auditoria_g2.py::test_aud_004_g2_minar_sin_dificultad_la_pasa_como_none",
+      "pruebas": [
+        "tests/test_auditoria_g2.py::test_aud_004_g2_minar_sin_dificultad_la_pasa_como_none",
+        "tests/test_auditoria_g3.py::test_aud_004_dificultad_fija_por_el_genesis",
+        "tests/test_auditoria_g3.py::test_aud_004_sin_parametro_se_mantiene_la_regla_antigua",
+        "tests/test_auditoria_g3.py::test_aud_004_genesis_con_dificultad_invalida",
+        "tests/test_auditoria_g3.py::test_aud_004_verificador_independiente_exige_la_dificultad_del_genesis"
+      ]
+    },
+    {
+      "id": "AUD-005",
+      "titulo": "El verificador de certificados valida contra el génesis que trae el propio certificado",
+      "descripcion": "El verificador de certificados valida contra el génesis que trae el propio certificado. Sin `--genesis` el verificador declara \"CERTIFICADO VÁLIDO\" para una red inventada; el endpoint web devuelve `valido=True` aunque `misma_red` sea falso.",
+      "severidad": "Alta",
+      "categoria": "Seguridad",
+      "grupo": "G3-nucleo",
+      "decision": "C",
+      "accion": "Sin `--genesis` el verificador no concluye \"VÁLIDO\" (resultado \"no concluyente\", código 3); el endpoint web sólo marca válido si el génesis es el de la red del nodo.",
+      "estado": "corregido",
+      "commits": [
+        "d0a7c0d"
+      ],
+      "prueba": "tests/test_auditoria_g3.py::test_aud_005_sin_genesis_esperado_no_es_valido",
+      "pruebas": [
+        "tests/test_auditoria_g3.py::test_aud_005_sin_genesis_esperado_no_es_valido",
+        "tests/test_auditoria_g3.py::test_aud_005_con_genesis_esperado_es_valido_y_confirmado",
+        "tests/test_auditoria_g3.py::test_aud_005_cli_sin_genesis_sale_con_codigo_3"
+      ]
+    },
+    {
+      "id": "AUD-006",
+      "titulo": "PoS: el comité de validadores y sus apuestas los declara el propio proponente",
+      "descripcion": "PoS: el comité de validadores y sus apuestas los declara el propio proponente.",
+      "severidad": "Alta",
+      "categoria": "Error de lógica",
+      "grupo": "G3-nucleo",
+      "decision": "RE",
+      "accion": "Resuelto por eliminación: se eliminó PoS del sistema el 2026-11-27; el código afectado ya no existe. (Decisión original: el comité PoS debía ser derivable de `hash_anterior|numero` y `tam_comite`.)",
+      "estado": "resuelto_por_eliminacion",
+      "commits": [
+        "7150292"
+      ],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-007",
+      "titulo": "PoS: castigos y rondas rechazadas sin prueba; el proponente castiga a otros y se re-sortea",
+      "descripcion": "PoS: castigos y rondas rechazadas sin prueba; el proponente castiga a otros y se re-sortea. Los `castigos` y `excluidos` de rondas anteriores son datos libres: se descuentan saldos de nodos honestos sin prueba de que la ronda fracasó.",
+      "severidad": "Alta",
+      "categoria": "Error de lógica",
+      "grupo": "G3-nucleo",
+      "decision": "RE",
+      "accion": "Resuelto por eliminación: se eliminó PoS del sistema el 2026-11-27; el código afectado ya no existe. (Decisión original: cada castigo/excluido debía traer la prueba de fraude firmada.)",
+      "estado": "resuelto_por_eliminacion",
+      "commits": [
+        "7d0842f"
+      ],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-008",
+      "titulo": "Autenticación P2P sin ligadura al canal: el reto sólo vincula al firmante (relé y suplantación)",
+      "descripcion": "Autenticación P2P sin ligadura al canal: el reto sólo vincula al firmante (relé y suplantación).",
+      "severidad": "Media",
+      "categoria": "Seguridad",
+      "grupo": "G1-red",
+      "decision": "C",
+      "accion": "La firma del saludo liga el canal: `sellalo-p2p|génesis|reto_A|reto_B|firmante|destinatario`.",
+      "estado": "corregido",
+      "commits": [
+        "3bc263d"
+      ],
+      "prueba": "tests/test_auditoria_g1.py::test_aud_008_firma_de_un_canal_no_sirve_en_otro",
+      "pruebas": [
+        "tests/test_auditoria_g1.py::test_aud_008_firma_de_un_canal_no_sirve_en_otro",
+        "tests/test_auditoria_g1.py::test_aud_008_saludo_legitimo_con_firma_ligada"
+      ]
+    },
+    {
+      "id": "AUD-009",
+      "titulo": "Deduplicación de BLOQUE/TX por el hash declarado y antes de validar",
+      "descripcion": "Deduplicación de BLOQUE/TX por el hash declarado y antes de validar. `_visto` marca la clave `B:<hash declarado>` antes de validar y no la retira al rechazar: un par puede \"quemar\" un bloque legítimo.",
+      "severidad": "Media",
+      "categoria": "Seguridad",
+      "grupo": "G1-red",
+      "decision": "C",
+      "accion": "Deduplicación por hash recalculado y sólo tras aceptar; un rechazo no \"quema\" el hash.",
+      "estado": "corregido",
+      "commits": [
+        "da64526"
+      ],
+      "prueba": "tests/test_auditoria_g1.py::test_aud_009_bloque_basura_con_hash_ajeno_no_quema_el_legitimo",
+      "pruebas": [
+        "tests/test_auditoria_g1.py::test_aud_009_bloque_basura_con_hash_ajeno_no_quema_el_legitimo",
+        "tests/test_auditoria_g1.py::test_aud_009_tx_rechazada_no_queda_marcada_como_vista"
+      ]
+    },
+    {
+      "id": "AUD-010",
+      "titulo": "Un sello multifirma completo se borra de \"en firma\" antes de entrar a pendientes y puede perderse",
+      "descripcion": "Un sello multifirma completo se borra de \"en firma\" antes de entrar a pendientes y puede perderse.",
+      "severidad": "Media",
+      "categoria": "Error de lógica",
+      "grupo": "G1-red",
+      "decision": "C",
+      "accion": "El sello completo sólo sale de \"en firma\" después de entrar a pendientes; si falla, se conserva y la API lo informa.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-011",
+      "titulo": "Rechazos que dependen del estado local y faltas sin decaimiento vetan a pares honestos",
+      "descripcion": "Rechazos que dependen del estado local y faltas sin decaimiento vetan a pares honestos.",
+      "severidad": "Media",
+      "categoria": "Error de lógica",
+      "grupo": "G1-red",
+      "decision": "C",
+      "accion": "Rechazos benignos (duplicada, pendientes llena, saldo, ya en cadena, desfase de reloj) no suman falta; las faltas decaen con el tiempo.",
+      "estado": "corregido",
+      "commits": [
+        "ab439b3"
+      ],
+      "prueba": "tests/test_auditoria_g1.py::test_aud_011_rechazos_benignos_no_suman_faltas",
+      "pruebas": [
+        "tests/test_auditoria_g1.py::test_aud_011_rechazos_benignos_no_suman_faltas",
+        "tests/test_auditoria_g1.py::test_aud_011_las_faltas_decaen_con_el_tiempo",
+        "tests/test_auditoria_g1.py::test_aud_011_nodo_marca_como_benignos_los_rechazos_que_dependen_del_estado",
+        "tests/test_auditoria_g1.py::test_aud_011_bloque_ya_en_cadena_y_futuro_son_benignos"
+      ]
+    },
+    {
+      "id": "AUD-012",
+      "titulo": "Sin límite de conexiones entrantes, hilos ni tasa de mensajes; contadores sin purga",
+      "descripcion": "Sin límite de conexiones entrantes, hilos ni tasa de mensajes; contadores sin purga. `_aceptar` crea un hilo por conexión sin tope global ni por IP, no hay límite de mensajes por par y `_faltas`/`_vetos` nunca se purgan.",
+      "severidad": "Media",
+      "categoria": "Seguridad",
+      "grupo": "G1-red",
+      "decision": "C",
+      "accion": "Tope de conexiones entrantes (global y por IP), purga periódica de `_faltas`/`_vetos`.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-013",
+      "titulo": "Sincronización: un par puede hacer crecer la memoria sin límite y forzar validaciones largas",
+      "descripcion": "Sincronización: un par puede hacer crecer la memoria sin límite y forzar validaciones largas. `_sincronizar` acumula hasta 200 000 bloques sin validar página a página, confía en `altura/trabajo` anunciados y `cola_bloques` no tiene tope.",
+      "severidad": "Media",
+      "categoria": "Seguridad",
+      "grupo": "G1-red",
+      "decision": "C",
+      "accion": "La sincronización se acota a la altura anunciada y a un máximo de bloques/bytes; cola de bloques acotada.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-014",
+      "titulo": "Cupos de sellos en firma y de firmas huérfanas agotables por un laboratorio; huérfanas sin verificar ni expirar",
+      "descripcion": "Cupos de sellos en firma y de firmas huérfanas agotables por un laboratorio; huérfanas sin verificar ni expirar.",
+      "severidad": "Media",
+      "categoria": "Seguridad",
+      "grupo": "G1-red",
+      "decision": "C",
+      "accion": "Cuota de sellos en firma y de firmas huérfanas por laboratorio; las huérfanas se verifican al llegar y caducan.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-015",
+      "titulo": "El doc_hash se difunde antes de minarse: cualquier laboratorio puede adelantarse y quedarse con la prioridad",
+      "descripcion": "El doc_hash se difunde antes de minarse: cualquier laboratorio puede adelantarse y quedarse con la prioridad.",
+      "severidad": "Media",
+      "categoria": "Seguridad",
+      "grupo": "G1-red",
+      "decision": "D",
+      "accion": "Adelantarse con un `doc_hash` visible antes del minado es inherente a difundir el sello en claro. Mitigación documentada: las firmas de autores prueban la autoría (un tercero no puede firmar por ellos); trabajo futuro: esquema *commit–reveal*.",
+      "estado": "justificado",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-016",
+      "titulo": "No existe reconexión automática: caída de enlace, veto o BYE degradan la malla de forma permanente",
+      "descripcion": "No existe reconexión automática: caída de enlace, veto o BYE degradan la malla de forma permanente.",
+      "severidad": "Media",
+      "categoria": "Procedimiento incompleto",
+      "grupo": "G1-red",
+      "decision": "C",
+      "accion": "Reconexión automática a los pares configurados (`--pares` y conectados manualmente) con espera exponencial.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-017",
+      "titulo": "Endpoint de ataques de demostración activo en el nodo real con la clave del laboratorio",
+      "descripcion": "Endpoint de ataques de demostración activo en el nodo real con la clave del laboratorio. `POST /api/sellalo/ataques` con `destino=red` firma y difunde bloques/transacciones inválidos con la clave real y no hay interruptor para desactivarlo.",
+      "severidad": "Media",
+      "categoria": "Seguridad",
+      "grupo": "G2-api",
+      "decision": "C",
+      "accion": "El laboratorio de ataques sólo se activa con `--laboratorio-ataques` (la demo y el lanzador lo pasan); sin la opción responde 409.",
+      "estado": "corregido",
+      "commits": [
+        "ff7c407"
+      ],
+      "prueba": "tests/test_auditoria_g2.py::test_aud_017_laboratorio_de_ataques_desactivado_por_defecto",
+      "pruebas": [
+        "tests/test_auditoria_g2.py::test_aud_017_laboratorio_de_ataques_desactivado_por_defecto",
+        "tests/test_auditoria_g2.py::test_aud_017_laboratorio_activado_con_la_opcion"
+      ]
+    },
+    {
+      "id": "AUD-018",
+      "titulo": "Timestamp de bloque sólo acotado por el bloque anterior: la fecha del certificado es manipulable hacia atrás",
+      "descripcion": "Timestamp de bloque sólo acotado por el bloque anterior: la fecha del certificado es manipulable hacia atrás.",
+      "severidad": "Media",
+      "categoria": "Error de lógica",
+      "grupo": "G3-nucleo",
+      "decision": "C",
+      "accion": "Regla de *mediana de tiempo pasado* (11 bloques): el timestamp debe ser ≥ la mediana de los anteriores; en la red Sellalo además ≤ ahora + 120 s al recibir.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-019",
+      "titulo": "El verificador de certificados no comprueba orden temporal: la fecha de prioridad es falsificable",
+      "descripcion": "El verificador de certificados no comprueba orden temporal: la fecha de prioridad es falsificable.",
+      "severidad": "Media",
+      "categoria": "Seguridad",
+      "grupo": "G3-nucleo",
+      "decision": "C",
+      "accion": "El verificador exige números finitos, timestamps no decrecientes respecto a la mediana y ≥ génesis.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-020",
+      "titulo": "Certificados emitidos y aceptados sin confirmaciones; la \"prioridad\" no es demostrable offline",
+      "descripcion": "Certificados emitidos y aceptados sin confirmaciones; la \"prioridad\" no es demostrable offline.",
+      "severidad": "Media",
+      "categoria": "Error de lógica",
+      "grupo": "G3-nucleo",
+      "decision": "CP",
+      "accion": "El verificador muestra las confirmaciones y acepta `--min-confirmaciones` (advertencia si < 6). Emitir con 0 confirmaciones se permite pero queda indicado.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-021",
+      "titulo": "PoS: `intento` y `monto` sin tipo estricto: varios sorteos distintos para el mismo bloque",
+      "descripcion": "PoS: `intento` y `monto` sin tipo estricto: varios sorteos distintos para el mismo bloque.",
+      "severidad": "Media",
+      "categoria": "Error de lógica",
+      "grupo": "G3-nucleo",
+      "decision": "CP",
+      "accion": "Corregido parcialmente / resto resuelto por eliminación: `intento` y las apuestas eran exclusivas de PoS, que se eliminó el 2026-11-27 (el código afectado ya no existe). Queda `monto` en las transferencias PoW, que ya se valida con tipo estricto (`es_entero`: `type(x) is int`, rechaza `bool` y `float`) en `revisar_transaccion` y lo cubre `test_transferencias_con_monto_invalido`.",
+      "estado": "resuelto_por_eliminacion",
+      "commits": [],
+      "prueba": "tests/test_adversarial.py::test_transferencias_con_monto_invalido",
+      "pruebas": [
+        "tests/test_adversarial.py::test_transferencias_con_monto_invalido"
+      ]
+    },
+    {
+      "id": "AUD-022",
+      "titulo": "`es_numero` lanza OverflowError con enteros enormes y la excepción escapa de la validación",
+      "descripcion": "`es_numero` lanza OverflowError con enteros enormes y la excepción escapa de la validación. `math.isfinite(10**400)` lanza `OverflowError`, que `validar_cadena` no convierte en `ErrorValidacion`.",
+      "severidad": "Media",
+      "categoria": "Manejo de excepciones",
+      "grupo": "G3-nucleo",
+      "decision": "C",
+      "accion": "`es_numero` sin `OverflowError`; `validar_cadena` convierte cualquier error de tipo/valor en `ErrorValidacion`.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-023",
+      "titulo": "Lógica de admisión y depuración de pendientes duplicada entre simulador y red real",
+      "descripcion": "Lógica de admisión y depuración de pendientes duplicada entre simulador y red real.",
+      "severidad": "Media",
+      "categoria": "Código muerto o duplicado",
+      "grupo": "G4-limpieza",
+      "decision": "NA",
+      "accion": "Las reglas de pendientes difieren a propósito (en el simulador el saldo comprometido incluía apuestas PoS, ya eliminadas; en la red, sellos sin saldo). Se comparten las constantes (AUD-055).",
+      "estado": "justificado",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-024",
+      "titulo": "Dos pipelines paralelos de recepción y adopción de cadena (`_copia_json` frente a `_json_puro`)",
+      "descripcion": "Dos pipelines paralelos de recepción y adopción de cadena (`_copia_json` frente a `_json_puro`).",
+      "severidad": "Media",
+      "categoria": "Código muerto o duplicado",
+      "grupo": "G4-limpieza",
+      "decision": "C",
+      "accion": "Una sola función de copia JSON pura en `models/cripto.py`.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-025",
+      "titulo": "Sin integridad ni cifrado del canal P2P tras el saludo",
+      "descripcion": "Sin integridad ni cifrado del canal P2P tras el saludo. Los mensajes posteriores al AUTH no llevan MAC ni van sobre TLS.",
+      "severidad": "Baja",
+      "categoria": "Seguridad",
+      "grupo": "G1-red",
+      "decision": "NA",
+      "accion": "TLS/MAC del canal fuera del alcance académico. Cada bloque, transacción, sello y firma viaja firmado y se valida por contenido; el saludo está autenticado (y ligado al canal tras AUD-008). Se documenta.",
+      "estado": "justificado",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-026",
+      "titulo": "Persistencia: errores de escritura tragados y reescritura completa de la cadena bajo candado",
+      "descripcion": "Persistencia: errores de escritura tragados y reescritura completa de la cadena bajo candado.",
+      "severidad": "Baja",
+      "categoria": "Manejo de excepciones",
+      "grupo": "G1-red",
+      "decision": "C",
+      "accion": "Un error de escritura queda visible en `/estado` (`error_persistencia`) además de la bitácora.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-027",
+      "titulo": "Difusión secuencial y bloqueante: un par lento retrasa a todos",
+      "descripcion": "Difusión secuencial y bloqueante: un par lento retrasa a todos. `difundir` envía uno a uno con `sendall` bajo `lock_envio` y timeout de 10 s, desde el hilo de minado y los de recepción.",
+      "severidad": "Baja",
+      "categoria": "Otro",
+      "grupo": "G1-red",
+      "decision": "C",
+      "accion": "Envío con tiempo límite corto por par para que uno lento no bloquee la difusión.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-028",
+      "titulo": "Un bloque no enlazado con PoW mínimo provoca sincronizaciones completas repetidas",
+      "descripcion": "Un bloque no enlazado con PoW mínimo provoca sincronizaciones completas repetidas. `_chequeo_ligero` sólo comprueba formato, hash y PoW y devuelve \"sincronizar\"; `_iniciar_sync` descarga y valida la cadena entera del par.",
+      "severidad": "Baja",
+      "categoria": "Seguridad",
+      "grupo": "G1-red",
+      "decision": "C",
+      "accion": "Límite de sincronizaciones por par (una cada N s).",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-029",
+      "titulo": "Conexiones simultáneas entre dos nodos pueden descartarse mutuamente",
+      "descripcion": "Conexiones simultáneas entre dos nodos pueden descartarse mutuamente. `conectar` registra la saliente antes del AUTH y rechaza la entrante del otro lado con \"par ya conectado\".",
+      "severidad": "Baja",
+      "categoria": "Error de lógica",
+      "grupo": "G1-red",
+      "decision": "C",
+      "accion": "Desempate determinista de conexiones simultáneas (se conserva la iniciada por el id menor).",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-030",
+      "titulo": "La clave privada sólo se \"olvida\" nominalmente al bloquear el nodo",
+      "descripcion": "La clave privada sólo se \"olvida\" nominalmente al bloquear el nodo. `bloquear` pone `_claves = None` y registra que la clave se olvidó de la memoria, pero Python no borra de forma determinista los bytes.",
+      "severidad": "Baja",
+      "categoria": "Seguridad",
+      "grupo": "G1-red",
+      "decision": "NA",
+      "accion": "Python no permite borrar de forma determinista la clave interna de `cryptography`; se eliminan todas las referencias y se documenta la limitación.",
+      "estado": "justificado",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-031",
+      "titulo": "El desbloqueo ejecuta scrypt con el candado del nodo y sin límite de intentos",
+      "descripcion": "El desbloqueo ejecuta scrypt con el candado del nodo y sin límite de intentos.",
+      "severidad": "Baja",
+      "categoria": "Seguridad",
+      "grupo": "G1-red",
+      "decision": "C",
+      "accion": "scrypt fuera del candado del nodo y retardo creciente tras intentos fallidos de desbloqueo.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-032",
+      "titulo": "Validación inconsistente de host en `/pares` y `--pares`; la ruta permite sondear destinos arbitrarios",
+      "descripcion": "Validación inconsistente de host en `/pares` y `--pares`; la ruta permite sondear destinos arbitrarios.",
+      "severidad": "Baja",
+      "categoria": "Error de lógica",
+      "grupo": "G2-api",
+      "decision": "C",
+      "accion": "`/pares` y `--pares` resuelven nombres de host a IP antes de conectar, con el mismo validador.",
+      "estado": "corregido",
+      "commits": [
+        "a714809"
+      ],
+      "prueba": "tests/test_auditoria_g2.py::test_aud_032_pares_resuelve_nombres_de_host",
+      "pruebas": [
+        "tests/test_auditoria_g2.py::test_aud_032_pares_resuelve_nombres_de_host",
+        "tests/test_auditoria_g2.py::test_aud_032_argumento_pares_resuelve_nombres"
+      ]
+    },
+    {
+      "id": "AUD-033",
+      "titulo": "Sin cabeceras de seguridad y fuentes externas sin SRI",
+      "descripcion": "Sin cabeceras de seguridad y fuentes externas sin SRI. No se envían CSP, `X-Content-Type-Options` ni `X-Frame-Options` y se cargan estilos de Google Fonts sin `integrity`.",
+      "severidad": "Baja",
+      "categoria": "Seguridad",
+      "grupo": "G2-api",
+      "decision": "CP",
+      "accion": "Cabeceras `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`. SRI para Google Fonts: NA (la hoja CSS de Google es dinámica); se acota con CSP.",
+      "estado": "corregido",
+      "commits": [
+        "25ba977"
+      ],
+      "prueba": "tests/test_auditoria_g2.py::test_aud_033_cabeceras_de_seguridad",
+      "pruebas": [
+        "tests/test_auditoria_g2.py::test_aud_033_cabeceras_de_seguridad",
+        "tests/test_auditoria_g2.py::test_aud_033_cabeceras_en_modo_nodo"
+      ]
+    },
+    {
+      "id": "AUD-034",
+      "titulo": "La verificación de certificados no acota el trabajo (encabezados y tamaño): DoS de CPU y memoria",
+      "descripcion": "La verificación de certificados no acota el trabajo (encabezados y tamaño): DoS de CPU y memoria. El endpoint admite 25 MiB y `verificar` recorre sin tope cada encabezado recalculando hash y firma Ed25519.",
+      "severidad": "Baja",
+      "categoria": "Seguridad",
+      "grupo": "G2-api",
+      "decision": "C",
+      "accion": "Límites de tamaño y de encabezados para `/certificado/verificar` (junto con AUD-046).",
+      "estado": "corregido",
+      "commits": [
+        "10aab2c"
+      ],
+      "prueba": "tests/test_auditoria_g2.py::test_aud_034_rutas_sin_subida_tienen_limite_pequeno",
+      "pruebas": [
+        "tests/test_auditoria_g2.py::test_aud_034_rutas_sin_subida_tienen_limite_pequeno",
+        "tests/test_auditoria_g2.py::test_aud_034_certificado_con_demasiados_encabezados",
+        "tests/test_auditoria_g2.py::test_aud_034_certificado_demasiado_grande"
+      ]
+    },
+    {
+      "id": "AUD-035",
+      "titulo": "`/estado` resuelve el nombre del equipo (`gethostbyname_ex`) en cada petición",
+      "descripcion": "`/estado` resuelve el nombre del equipo (`gethostbyname_ex`) en cada petición. `_direcciones_locales()` hace una resolución de nombre y abre un socket UDP en cada consulta de `/estado`, que la interfaz sondea periódicamente.",
+      "severidad": "Baja",
+      "categoria": "Otro",
+      "grupo": "G2-api",
+      "decision": "C",
+      "accion": "Direcciones locales en caché (60 s).",
+      "estado": "corregido",
+      "commits": [
+        "b79d7cb"
+      ],
+      "prueba": "tests/test_auditoria_g2.py::test_aud_035_direcciones_locales_en_cache",
+      "pruebas": [
+        "tests/test_auditoria_g2.py::test_aud_035_direcciones_locales_en_cache"
+      ]
+    },
+    {
+      "id": "AUD-036",
+      "titulo": "`POST /transacciones/aleatoria` devuelve error tras haber creado parte de las transacciones",
+      "descripcion": "`POST /transacciones/aleatoria` devuelve error tras haber creado parte de las transacciones. El bucle no captura `ErrorEstado` (pendientes llena); la respuesta 409 no indica que ya se crearon algunas.",
+      "severidad": "Baja",
+      "categoria": "Manejo de excepciones",
+      "grupo": "G2-api",
+      "decision": "C",
+      "accion": "Respuesta indica cuántas transacciones se crearon antes del error.",
+      "estado": "corregido",
+      "commits": [
+        "e0ff60a"
+      ],
+      "prueba": "tests/test_auditoria_g2.py::test_aud_036_aleatoria_informa_las_creadas_antes_del_limite",
+      "pruebas": [
+        "tests/test_auditoria_g2.py::test_aud_036_aleatoria_informa_las_creadas_antes_del_limite"
+      ]
+    },
+    {
+      "id": "AUD-037",
+      "titulo": "POST JSON con cuerpo vacío rechazado en rutas sin parámetros",
+      "descripcion": "POST JSON con cuerpo vacío rechazado en rutas sin parámetros. `datos()` trata `get_json(silent=True) == None` como error aunque `/pos/ronda`, `/pos/sortear`, `/pos/cerrar` sólo la llaman para descartar el cuerpo.",
+      "severidad": "Baja",
+      "categoria": "Error de lógica",
+      "grupo": "G2-api",
+      "decision": "C",
+      "accion": "Cuerpo vacío aceptado en rutas sin parámetros.",
+      "estado": "corregido",
+      "commits": [
+        "e444076"
+      ],
+      "prueba": "tests/test_auditoria_g2.py::test_aud_037_json_con_cuerpo_vacio_en_rutas_sin_parametros",
+      "pruebas": [
+        "tests/test_auditoria_g2.py::test_aud_037_json_con_cuerpo_vacio_en_rutas_sin_parametros",
+        "tests/test_auditoria_g2.py::test_aud_037_cuerpo_vacio_con_json_en_ruta_con_parametros_sigue_siendo_error_claro"
+      ]
+    },
+    {
+      "id": "AUD-038",
+      "titulo": "`RecursionError` sin capturar al leer JSON profundamente anidado (almacén de claves y verificador)",
+      "descripcion": "`RecursionError` sin capturar al leer JSON profundamente anidado (almacén de claves y verificador). `_leer` captura `(OSError, ValueError)` y `main` del verificador igual; `RecursionError` no es `ValueError` y escapa con traceback.",
+      "severidad": "Baja",
+      "categoria": "Manejo de excepciones",
+      "grupo": "G3-nucleo",
+      "decision": "C",
+      "accion": "`RecursionError` capturado en almacén de claves y verificador.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-039",
+      "titulo": "Los parámetros scrypt del almacén de claves permiten pedir ~2 GiB de memoria por llamada",
+      "descripcion": "Los parámetros scrypt del almacén de claves permiten pedir ~2 GiB de memoria por llamada. `N_MAX_ACEPTADO = 2**20` con `r<=16`, `p<=4` permite `128·N·r` = 2 GiB y el comentario afirma lo contrario.",
+      "severidad": "Baja",
+      "categoria": "Seguridad",
+      "grupo": "G3-nucleo",
+      "decision": "C",
+      "accion": "Tope de memoria de scrypt aceptado (`128·N·r ≤ 64 MiB`, `p ≤ 2`) y comentario corregido.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-040",
+      "titulo": "Contraseña con sustituto Unicode suelto provoca `UnicodeEncodeError` sin controlar (500)",
+      "descripcion": "Contraseña con sustituto Unicode suelto provoca `UnicodeEncodeError` sin controlar (500). `_validar_contrasena` y `entradas.contrasena` sólo comprueban tipo y longitud; `_kdf` hace `encode(\"utf-8\")` y `\"\\ud800\"` lanza.",
+      "severidad": "Baja",
+      "categoria": "Manejo de excepciones",
+      "grupo": "G3-nucleo",
+      "decision": "C",
+      "accion": "Contraseñas con sustitutos Unicode sueltos rechazadas con mensaje claro.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-041",
+      "titulo": "`crear_almacen`: comprobación de existencia y reemplazo no son atómicos",
+      "descripcion": "`crear_almacen`: comprobación de existencia y reemplazo no son atómicos. `os.path.exists` seguido de `_escribir` con `os.replace`, que sobrescribe.",
+      "severidad": "Baja",
+      "categoria": "Error de lógica",
+      "grupo": "G3-nucleo",
+      "decision": "C",
+      "accion": "Creación exclusiva (`O_EXCL`) del almacén.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-042",
+      "titulo": "Simulador PoW: gana la cadena más larga sin considerar trabajo y la dificultad es libre por bloque",
+      "descripcion": "Simulador PoW: gana la cadena más larga sin considerar trabajo y la dificultad es libre por bloque. `Nodo.recibir_cadena` adopta por `len(copia) > len(self.cadena)` mientras la red real usa trabajo acumulado.",
+      "severidad": "Baja",
+      "categoria": "Error de lógica",
+      "grupo": "G3-nucleo",
+      "decision": "NA",
+      "accion": "El simulador aplica la regla (d) de la guía de medio término (\"cadena válida más larga\") explícitamente; la red real usa trabajo acumulado. Decisión de diseño documentada.",
+      "estado": "justificado",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-043",
+      "titulo": "Los ataques del simulador minan hasta 3 M de hashes con `red.lock` tomado",
+      "descripcion": "Los ataques del simulador minan hasta 3 M de hashes con `red.lock` tomado. `atacar_cadena` ejecuta la fábrica y `_minar` (hasta `LIMITE_MINADO_ATAQUE = 3_000_000`) dentro de `red.lock`, con dificultad de la configuración (hasta 6).",
+      "severidad": "Baja",
+      "categoria": "Seguridad",
+      "grupo": "G3-nucleo",
+      "decision": "C",
+      "accion": "Minado de ataques fuera de `red.lock` y con dificultad acotada.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-044",
+      "titulo": "`cadena_intacta` del ataque da falso negativo si la punta avanza legítimamente durante el ataque",
+      "descripcion": "`cadena_intacta` del ataque da falso negativo si la punta avanza legítimamente durante el ataque. `intacta = nodo.punta == punta or not rechazado` compara con la punta actual en lugar de comprobar que la anterior sigue en la cadena.",
+      "severidad": "Baja",
+      "categoria": "Error de lógica",
+      "grupo": "G3-nucleo",
+      "decision": "C",
+      "accion": "`cadena_intacta` comprueba que la punta previa sigue en la cadena.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-045",
+      "titulo": "Coautores listados sin consentimiento cuando `umbral < n`",
+      "descripcion": "Coautores listados sin consentimiento cuando `umbral < n`. Un sello k-de-n es válido con k firmas y `autores` puede incluir laboratorios que no firmaron.",
+      "severidad": "Baja",
+      "categoria": "Error de lógica",
+      "grupo": "G3-nucleo",
+      "decision": "CP",
+      "accion": "La semántica k-de-n se mantiene (es la técnica elegida), pero el verificador, la API de prioridad y el certificado distinguen firmantes de autores declarados; se documenta.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-046",
+      "titulo": "Certificado y sincronización crecen sin límite (el certificado supera los 25 MiB que acepta el verificador)",
+      "descripcion": "Certificado y sincronización crecen sin límite (el certificado supera los 25 MiB que acepta el verificador).",
+      "severidad": "Baja",
+      "categoria": "Otro",
+      "grupo": "G3-nucleo",
+      "decision": "D",
+      "accion": "El certificado incluye todos los encabezados por diseño (verificable desde el génesis). A escala académica (< 10 000 bloques ≈ 7 MB) es suficiente; trabajo futuro: puntos de control firmados. Tope coherente con AUD-034.",
+      "estado": "justificado",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-047",
+      "titulo": "`merkle.verificar_camino` sin uso en producción (duplicada por `_camino_ok` del verificador)",
+      "descripcion": "`merkle.verificar_camino` sin uso en producción (duplicada por `_camino_ok` del verificador). Sólo la usan las pruebas; el verificador independiente tiene su copia casi literal (64 pasos máx.).",
+      "severidad": "Baja",
+      "categoria": "Código muerto o duplicado",
+      "grupo": "G4-limpieza",
+      "decision": "NA",
+      "accion": "Duplicación intencional: el verificador es independiente por contrato (C6); `merkle.verificar_camino` es la implementación de referencia que la prueba de compatibilidad contrasta con él.",
+      "estado": "justificado",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-048",
+      "titulo": "`keystore.cambiar_contrasena` sin consumidor en producción",
+      "descripcion": "`keystore.cambiar_contrasena` sin consumidor en producción. Sólo existe en pruebas; ninguna ruta, script ni botón cambia la contraseña de un almacén.",
+      "severidad": "Baja",
+      "categoria": "Código muerto o duplicado",
+      "grupo": "G4-limpieza",
+      "decision": "C",
+      "accion": "Se le da consumidor: `scripts/cambiar_contrasena.py`.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-049",
+      "titulo": "`ServidorP2P.faltas_de` sólo se usa en pruebas",
+      "descripcion": "`ServidorP2P.faltas_de` sólo se usa en pruebas. Accesor sin llamadas en producción (7 en pruebas).",
+      "severidad": "Baja",
+      "categoria": "Código muerto o duplicado",
+      "grupo": "G4-limpieza",
+      "decision": "C",
+      "accion": "Las faltas de cada par se exponen en `pares_publico()` (útil en la interfaz).",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-050",
+      "titulo": "Imports sin uso: `firmar_sello` en `coordinador_sellos`, `time` en `pow` (y dos en pruebas)",
+      "descripcion": "Imports sin uso: `firmar_sello` en `coordinador_sellos`, `time` en `pow` (y dos en pruebas). Importaciones que no se usan en su archivo.",
+      "severidad": "Baja",
+      "categoria": "Código muerto o duplicado",
+      "grupo": "G4-limpieza",
+      "decision": "C",
+      "accion": "Quitar imports sin uso.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-051",
+      "titulo": "`multifirma.firmar_sello` sólo la usan las pruebas; el cálculo está inline en tres sitios (y la clase `_Firmador`)",
+      "descripcion": "`multifirma.firmar_sello` sólo la usan las pruebas; el cálculo está inline en tres sitios (y la clase `_Firmador`).",
+      "severidad": "Baja",
+      "categoria": "Código muerto o duplicado",
+      "grupo": "G4-limpieza",
+      "decision": "C",
+      "accion": "Usar `firmar_sello` en los sitios con el cálculo en línea.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-052",
+      "titulo": "CSS sin uso: `.inline`, `.flash*`, `.bloqueado-nota`, `.ev-multifirma`, `.ev-ataque`",
+      "descripcion": "CSS sin uso: `.inline`, `.flash*`, `.bloqueado-nota`, `.ev-multifirma`, `.ev-ataque`. Reglas sin ningún elemento que las use (los dos `ev-*` sólo si ningún módulo emite esos tipos).",
+      "severidad": "Baja",
+      "categoria": "Código muerto o duplicado",
+      "grupo": "G4-limpieza",
+      "decision": "C",
+      "accion": "Quitar CSS sin uso (comprobando las clases dinámicas `ev-*`).",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-053",
+      "titulo": "Búsqueda de nonce copiada en cuatro lugares (dos `_minar` idénticas)",
+      "descripcion": "Búsqueda de nonce copiada en cuatro lugares (dos `_minar` idénticas). `ataques.py` y `ataques_sellalo.py` tienen la misma `_minar` con 3 000 000 intentos; la segunda es más lenta (sin hasher precalculado).",
+      "severidad": "Baja",
+      "categoria": "Código muerto o duplicado",
+      "grupo": "G4-limpieza",
+      "decision": "C",
+      "accion": "Una sola búsqueda de nonce para ataques en `models/pow.py`.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-054",
+      "titulo": "`_rango` duplicada en `pow.py` y `red.py`; validación de enteros repetida en `entradas.entero`",
+      "descripcion": "`_rango` duplicada en `pow.py` y `red.py`; validación de enteros repetida en `entradas.entero`. Dos funciones idénticas línea por línea y una tercera lógica de rango con otro mensaje.",
+      "severidad": "Baja",
+      "categoria": "Código muerto o duplicado",
+      "grupo": "G4-limpieza",
+      "decision": "C",
+      "accion": "Una sola `_rango`.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-055",
+      "titulo": "Constantes de configuración repetidas: `MAX_PENDIENTES`, confirmaciones, `MARGEN_FUTURO`, límites de autores/título, `ID_VALIDO`",
+      "descripcion": "Constantes de configuración repetidas: `MAX_PENDIENTES`, confirmaciones, `MARGEN_FUTURO`, límites de autores/título, `ID_VALIDO`.",
+      "severidad": "Baja",
+      "categoria": "Código muerto o duplicado",
+      "grupo": "G4-limpieza",
+      "decision": "C",
+      "accion": "Constantes compartidas en un módulo de parámetros.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-056",
+      "titulo": "`demo_e2e.RedLocal` repite la preparación y el lanzamiento de `lanzar_red_local.py`",
+      "descripcion": "`demo_e2e.RedLocal` repite la preparación y el lanzamiento de `lanzar_red_local.py`. Ambos crean almacenes, génesis, arman la línea de `app.py` y lanzan `subprocess.Popen`.",
+      "severidad": "Baja",
+      "categoria": "Código muerto o duplicado",
+      "grupo": "G4-limpieza",
+      "decision": "C",
+      "accion": "`demo_e2e` reutiliza `lanzar_red_local.preparar`.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-057",
+      "titulo": "Helper `esperar` copiado en seis módulos de prueba (y una variante en `demo_e2e`)",
+      "descripcion": "Helper `esperar` copiado en seis módulos de prueba (y una variante en `demo_e2e`). Mismo bucle `monotonic` con `sleep(0.02)`; sólo cambia el límite por defecto.",
+      "severidad": "Baja",
+      "categoria": "Código muerto o duplicado",
+      "grupo": "G4-limpieza",
+      "decision": "C",
+      "accion": "`esperar` en un helper común de pruebas.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-058",
+      "titulo": "`_ok` duplicada en los dos blueprints",
+      "descripcion": "`_ok` duplicada en los dos blueprints. Ambas arman `jsonify(ok=True, mensaje=..., **extra)`.",
+      "severidad": "Baja",
+      "categoria": "Código muerto o duplicado",
+      "grupo": "G4-limpieza",
+      "decision": "C",
+      "accion": "`_ok` compartida.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-059",
+      "titulo": "Dependencias sin fijar y herramientas de prueba mezcladas con las de ejecución",
+      "descripcion": "Dependencias sin fijar y herramientas de prueba mezcladas con las de ejecución.",
+      "severidad": "Baja",
+      "categoria": "Otro",
+      "grupo": "G4-limpieza",
+      "decision": "C",
+      "accion": "Rangos de versión acotados y `requirements-dev.txt` con `pytest`.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-060",
+      "titulo": "`lanzar_red_local.py` reutiliza un génesis de otra configuración y no pide la contraseña al ampliar la red",
+      "descripcion": "`lanzar_red_local.py` reutiliza un génesis de otra configuración y no pide la contraseña al ampliar la red. El génesis sólo se crea si no existe y la contraseña sólo se pide si falta `LAB-A/clave.json`.",
+      "severidad": "Baja",
+      "categoria": "Error de lógica",
+      "grupo": "G4-limpieza",
+      "decision": "C",
+      "accion": "El lanzador detecta génesis de otra configuración y pide contraseña al ampliar.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-061",
+      "titulo": "`demo_e2e.py`: procesos huérfanos y trazas si falla el arranque; sólo se captura `AssertionError`",
+      "descripcion": "`demo_e2e.py`: procesos huérfanos y trazas si falla el arranque; sólo se captura `AssertionError`. `RedLocal(...)` y `lanzar_todos()` están antes del `try/finally` que llama a `red.cerrar()`; `main` sólo captura `AssertionError`.",
+      "severidad": "Baja",
+      "categoria": "Manejo de excepciones",
+      "grupo": "G4-limpieza",
+      "decision": "C",
+      "accion": "`demo_e2e` cierra procesos en cualquier error.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    },
+    {
+      "id": "AUD-062",
+      "titulo": "`demo_e2e.py` paso 8: espera fija de 0,8 s y comprobación satisfacible con rechazos previos",
+      "descripcion": "`demo_e2e.py` paso 8: espera fija de 0,8 s y comprobación satisfacible con rechazos previos. `time.sleep(0.8)` y búsqueda de rechazos en toda la bitácora sin comparar con lo previo al ataque.",
+      "severidad": "Baja",
+      "categoria": "Error de lógica",
+      "grupo": "G4-limpieza",
+      "decision": "C",
+      "accion": "Paso 8 de la demo compara la bitácora antes/después y espera por sondeo.",
+      "estado": "pendiente",
+      "commits": [],
+      "prueba": null,
+      "pruebas": []
+    }
+  ]
+}
