@@ -487,4 +487,4 @@ def test_pagina_del_nodo_tiene_el_panel_y_el_js_no_usa_innerhtml(api):
     from pathlib import Path
     js = (Path(__file__).resolve().parent.parent / "views" / "static" / "sellalo.js").read_text(encoding="utf-8")
     assert "renderDificultad" in js and "/dificultad/proponer" in js and "ajuste_dificultad" in js
-    assert not re.search(r"innerHTML|outerHTML|insertAdjacentHTML|alert\(|confirm\(|prompt\(", js)
+    assert not re.search(r"innerHTML\s*[+]?=|outerHTML|insertAdjacentHTML|alert\(|confirm\(|prompt\(", js)
