@@ -6,11 +6,12 @@
 
   const ESTADOS = { demostrado: ["chip-ok", "demostrado"], parcial: ["chip-warn", "parcial"], pendiente: ["chip-pend", "pendiente"] };
   // Secciones de la vista Nodo a las que lleva «Ver». Lo que no está aquí (p. ej. seccion-entrega) no tiene botón.
-  const SECCIONES_NODO = new Set(["identidad", "red", "sellar", "firmas", "minado", "consenso", "cadena", "verificacion", "prioridad", "ataques", "cuentas"]);
+  const SECCIONES_NODO = new Set(["identidad", "red", "sellar", "firmas", "minado", "consenso", "cadena", "verificacion", "prioridad", "cuentas"]);
 
   function destino(seccion) {
     if (typeof seccion !== "string" || !seccion.startsWith("seccion-")) return null;
     const nombre = seccion.slice(8);
+    if (nombre === "ataques") return "/ataques";
     if (nombre === "auditoria") return "/auditoria";
     if (nombre === "recorrido") return "#seccion-recorrido";
     return SECCIONES_NODO.has(nombre) ? `/#${seccion}` : null;

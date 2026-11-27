@@ -12,8 +12,8 @@ from tests.laboratorios import crear_laboratorios
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ESTATICOS = os.path.join(RAIZ, "views", "static")
-JS = [os.path.join(ESTATICOS, n) for n in ("comun.js", "sellalo.js", "rubrica.js", "auditoria.js", "app.js")]
-VISTAS = {"/": "nodo", "/rubrica": "rubrica", "/auditoria": "auditoria", "/simulador": "simulador"}
+JS = [os.path.join(ESTATICOS, n) for n in ("comun.js", "sellalo.js", "rubrica.js", "ataques.js", "auditoria.js", "app.js")]
+VISTAS = {"/": "nodo", "/rubrica": "rubrica", "/ataques": "ataques", "/auditoria": "auditoria", "/simulador": "simulador"}
 
 
 @pytest.fixture(scope="module")
@@ -40,8 +40,8 @@ def test_vistas_responden_200_en_modo_nodo(nodo, ruta):
     assert nodo.get(ruta).status_code == 200
 
 
-@pytest.mark.parametrize("ruta", ["/rubrica", "/auditoria"])
-def test_rubrica_y_auditoria_en_modo_simulador_avisan(simulador, ruta):
+@pytest.mark.parametrize("ruta", ["/rubrica", "/ataques", "/auditoria"])
+def test_rubrica_ataques_y_auditoria_en_modo_simulador_avisan(simulador, ruta):
     r = simulador.get(ruta)
     assert r.status_code == 200
     assert "requiere el modo nodo" in r.get_data(as_text=True)
@@ -68,10 +68,10 @@ def test_auditoria_tiene_la_tabla_y_rutas_en_texto(nodo):
 
 
 @pytest.mark.parametrize("ruta,activa", list(VISTAS.items()))
-def test_selector_de_vistas_con_cuatro_pestanas_y_la_activa_marcada(nodo, ruta, activa):
+def test_selector_de_vistas_con_cinco_pestanas_y_la_activa_marcada(nodo, ruta, activa):
     html = nodo.get(ruta).get_data(as_text=True)
     tabs = pestanas(html)
-    assert [t for _, t in tabs] == ["Nodo", "Rúbrica", "Auditoría", "Simulador"]
+    assert [t for _, t in tabs] == ["Nodo", "Rúbrica", "Ataques", "Auditoría", "Simulador"]
     marcadas = [attrs for attrs, _ in tabs if 'aria-current="page"' in attrs]
     assert len(marcadas) == 1 and f'data-vista="{activa}"' in marcadas[0]
     assert 'aria-label="Vistas de la aplicación"' in html
@@ -79,9 +79,9 @@ def test_selector_de_vistas_con_cuatro_pestanas_y_la_activa_marcada(nodo, ruta, 
 
 def test_simulador_en_modo_simulador_deshabilita_vistas_del_nodo(simulador):
     tabs = pestanas(simulador.get("/").get_data(as_text=True))
-    assert [t for _, t in tabs] == ["Nodo", "Rúbrica", "Auditoría", "Simulador"]
+    assert [t for _, t in tabs] == ["Nodo", "Rúbrica", "Ataques", "Auditoría", "Simulador"]
     deshabilitadas = [t for attrs, t in tabs if 'aria-disabled="true"' in attrs]
-    assert deshabilitadas == ["Nodo", "Rúbrica", "Auditoría"]
+    assert deshabilitadas == ["Nodo", "Rúbrica", "Ataques", "Auditoría"]
     assert all("title=" in attrs for attrs, t in tabs if t in deshabilitadas)
 
 
@@ -98,7 +98,7 @@ def test_nodo_tiene_exactamente_cinco_grupos_en_la_barra_secundaria(nodo):
 
 
 def test_las_otras_vistas_no_tienen_barra_de_grupos(nodo):
-    for ruta in ("/rubrica", "/auditoria"):
+    for ruta in ("/rubrica", "/ataques", "/auditoria"):
         assert "data-grupo=" not in nodo.get(ruta).get_data(as_text=True)
 
 
@@ -114,3 +114,30 @@ def test_js_sin_innerhtml_con_datos_ni_dialogos():
 def test_js_sintaxis_valida(js):
     r = subprocess.run(["node", "--check", js], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+def test_ataques_tiene_formulario_historial_y_panel_de_cadena(nodo):
+    html = nodo.get("/ataques").get_data(as_text=True)
+    for ident in ("form-ataque", "in-ataque-destino", "atq-catalogo", "atq-historial", "atq-a-punta", "atq-d-punta", "atq-desactivado"):
+        assert f'id="{ident}"' in html
+    assert "ataques.js" in html and "--laboratorio-ataques" in html
+    assert nodo.get("/static/ataques.js").status_code == 200
+
+
+def test_nodo_ya_no_contiene_la_seccion_de_ataques(nodo):
+    html = nodo.get("/").get_data(as_text=True)
+    assert "seccion-ataques" not in html and "form-ataque" not in html and "Laboratorio de ataques" not in html
+    with open(os.path.join(ESTATICOS, "sellalo.js"), encoding="utf-8") as f:
+        assert "ataque" not in f.read().lower()
+
+
+def test_barra_del_nodo_tiene_grupo_verificacion_y_no_seguridad(nodo):
+    html = nodo.get("/").get_data(as_text=True)
+    textos = re.findall(r'data-grupo="\w+" data-secciones="[^"]*">([^<]+)<', html)
+    assert len(textos) == 5 and "Verificación" in textos and "Seguridad" not in textos
+    assert '<option value="seccion-verificacion">Verificación</option>' in html
+
+
+def test_ataques_js_sin_innerhtml_ni_localstorage():
+    codigo = " ".join(l for l in open(os.path.join(ESTATICOS, "ataques.js"), encoding="utf-8").read().splitlines() if not l.lstrip().startswith("//"))
+    assert not re.search(r"innerHTML|outerHTML|insertAdjacentHTML|localStorage|sessionStorage", codigo)

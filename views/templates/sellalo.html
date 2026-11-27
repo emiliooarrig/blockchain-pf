@@ -18,7 +18,7 @@
     <li><a href="#seccion-identidad" data-grupo="identidad" data-secciones="identidad red consenso">Identidad y red</a></li>
     <li><a href="#seccion-sellar" data-grupo="sellos" data-secciones="sellar firmas prioridad">Sellos</a></li>
     <li><a href="#seccion-minado" data-grupo="cadena" data-secciones="minado cadena">Minado y cadena</a></li>
-    <li><a href="#seccion-verificacion" data-grupo="seguridad" data-secciones="verificacion ataques">Seguridad</a></li>
+    <li><a href="#seccion-verificacion" data-grupo="seguridad" data-secciones="verificacion">Verificación</a></li>
     <li><a href="#seccion-cuentas" data-grupo="cuentas" data-secciones="cuentas">Cuentas</a></li>
   </ul>
   <label class="grupos-select">
@@ -28,7 +28,7 @@
       <option value="seccion-identidad">Identidad y red</option>
       <option value="seccion-sellar">Sellos</option>
       <option value="seccion-minado">Minado y cadena</option>
-      <option value="seccion-verificacion">Seguridad</option>
+      <option value="seccion-verificacion">Verificación</option>
       <option value="seccion-cuentas">Cuentas</option>
     </select>
   </label>
@@ -241,22 +241,6 @@
       </form>
     </div>
     <div id="verif-resultado" class="verif-resultado" aria-live="polite"></div>
-  </section>
-
-  <!-- 8 · Ataques -->
-  <section class="card" id="seccion-ataques" aria-labelledby="t-ataques">
-    <h2 id="t-ataques">Laboratorio de ataques</h2>
-    <p class="section-hint">Fabrica una manipulación sobre una copia y mira cómo se rechaza. Tu cadena honesta no cambia.</p>
-    <form id="form-ataque" class="form form-grid" autocomplete="off">
-      <label>Ataque<select id="in-ataque-tipo" name="tipo" required></select></label>
-      <label>Destino
-        <select id="in-ataque-destino" name="destino">
-          <option value="local">Sólo este nodo</option>
-          <option value="red">Este nodo y la red</option>
-        </select></label>
-      <button class="btn btn-danger" type="submit" id="btn-ataque">Lanzar ataque</button>
-    </form>
-    <div id="ataque-resultado" class="resultado" hidden></div>
   </section>
 
   <!-- 9 · Cuentas y bitácora -->

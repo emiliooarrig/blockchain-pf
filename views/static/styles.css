@@ -523,3 +523,17 @@ a.vista-tab:hover { background: rgba(255, 255, 255, .18); }
   .topbar { padding-bottom: 64px; }
   .con-grupos .topbar { padding-bottom: 20px; }
 }
+
+/* Vista Ataques */
+.atq-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 24px; }
+@media (max-width: 800px) { .atq-layout { grid-template-columns: minmax(0, 1fr); } }
+.atq-catalogo { border: 0; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; min-width: 0; }
+.atq-catalogo legend { font-weight: 600; margin-bottom: 6px; padding: 0; }
+.atq-opcion { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line, var(--muted)); border-radius: 10px; cursor: pointer; }
+.atq-opcion:has(input:checked) { border-color: var(--bad); background: var(--bad-bg); }
+.atq-opcion:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.atq-opcion > span { display: grid; gap: 2px; min-width: 0; }
+.atq-opcion strong { text-transform: capitalize; }
+.atq-desc { display: block; overflow-wrap: anywhere; }
+.atq-lateral { min-width: 0; }
+.atq-tabla th, .atq-tabla td { overflow-wrap: anywhere; }

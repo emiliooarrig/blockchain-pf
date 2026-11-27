@@ -1,5 +1,5 @@
-{# Encabezado común de las vistas. Variables: vista ('nodo'|'rubrica'|'auditoria'|'simulador'), con_estado (bool), subtitulo. #}
-{% set pestanas = [('nodo', '/', 'Nodo'), ('rubrica', '/rubrica', 'Rúbrica'), ('auditoria', '/auditoria', 'Auditoría'),
+{# Encabezado común de las vistas. Variables: vista ('nodo'|'rubrica'|'ataques'|'auditoria'|'simulador'), con_estado (bool), subtitulo. #}
+{% set pestanas = [('nodo', '/', 'Nodo'), ('rubrica', '/rubrica', 'Rúbrica'), ('ataques', '/ataques', 'Ataques'), ('auditoria', '/auditoria', 'Auditoría'),
                    ('simulador', '/simulador' if modo_nodo else '/', 'Simulador')] %}
 <header class="topbar">
   <div class="topbar-fila">
