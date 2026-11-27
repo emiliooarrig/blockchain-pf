@@ -31,7 +31,7 @@ from verificar_certificado import verificar
 
 sellalo = Blueprint("sellalo", __name__, url_prefix="/api/sellalo")
 paginas_nodo = Blueprint("paginas_nodo", __name__)
-paginas_vistas = Blueprint("paginas_vistas", __name__)   # /rubrica y /auditoria: también en modo simulador (con aviso)
+paginas_vistas = Blueprint("paginas_vistas", __name__)   # /rubrica, /ataques y /auditoria: también en modo simulador (con aviso)
 
 MENSAJE_SIMULADOR = "Este proceso no es un nodo Sellalo; arráncalo con --modo nodo."
 TITULO_MAX, INVESTIGADOR_MAX = 120, 80
@@ -152,6 +152,11 @@ def inicio_simulador():
 @paginas_vistas.get("/rubrica")
 def vista_rubrica():
     return render_template("rubrica.html")
+
+
+@paginas_vistas.get("/ataques")
+def vista_ataques():
+    return render_template("ataques.html")
 
 
 @paginas_vistas.get("/auditoria")

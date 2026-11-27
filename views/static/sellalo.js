@@ -7,7 +7,7 @@
 
   // ---------------------------------------------------------------- estado de la interfaz
   const ui = { est: null, ocupados: new Set(), abiertos: new Set(), detalles: new Map(), hashPrio: "",
-               clavesAutores: "", clavesAtaques: "", clavesBloques: "", clavesBitacora: "", tiposBitacora: new Set(),
+               clavesAutores: "", clavesBloques: "", clavesBitacora: "", tiposBitacora: new Set(),
                limitesAplicados: false };
 
   function bloqueado() { return !(ui.est && ui.est.nodo && ui.est.nodo.desbloqueado); }
@@ -103,14 +103,6 @@
     $("#dif-fija").hidden = difRed == null;
     $("#lbl-dif").hidden = difRed != null;
     if (difRed != null) $("#dif-fija-valor").textContent = String(difRed);
-    $("#seccion-ataques").hidden = !e.laboratorio_ataques;     // AUD-017: sólo con --laboratorio-ataques
-    const cl = `${e.ataques.map((a) => a.id).join(",")}`;
-    if (cl !== ui.clavesAtaques) {
-      ui.clavesAtaques = cl;
-      const sel = $("#in-ataque-tipo"), previo = sel.value;
-      sel.replaceChildren(...e.ataques.map((a) => h("option", { value: a.id }, a.nombre)));
-      if (previo) sel.value = previo;
-    }
     if (!ui.limitesAplicados) {
       ui.limitesAplicados = true;
       const [min, max] = e.limites.dificultad;
@@ -263,7 +255,6 @@
     ponerDeshabilitado("btn-conectar", "Desbloquea el nodo para conectarte a otros pares.");
     ponerDeshabilitado("btn-sellar", "Desbloquea el nodo para firmar el sello.");
     ponerDeshabilitado("btn-tx", "Desbloquea el nodo para firmar la transferencia.");
-    ponerDeshabilitado("btn-ataque", "Desbloquea el nodo para lanzar ataques (se firman con su clave).");
   }
 
   function render(e) {
@@ -429,26 +420,6 @@
       pasosCertificado(d.pasos), diagramaMerkle(d.merkle),
       h("p", {}, d.misma_red ? h("span", { class: "chip chip-ok" }, "De esta misma red") : h("span", { class: "chip chip-warn" }, "De otra red (génesis distinto)")));
     mostrar(box, true);
-  });
-
-  // ---- ataques
-  $("#form-ataque").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const btn = $("#btn-ataque");
-    ui.ocupados.add(btn.id); btn.disabled = true;
-    const r = await api("/ataques", { metodo: "POST", json: { tipo: $("#in-ataque-tipo").value, destino: $("#in-ataque-destino").value } });
-    ui.ocupados.delete(btn.id);
-    const box = $("#ataque-resultado"), d = r.data;
-    if (!r.ok) { box.className = "resultado bad"; box.replaceChildren(h("p", {}, d.error || "No se pudo ejecutar el ataque.")); mostrar(box, true); toast(d.error || "No se pudo ejecutar el ataque.", "error"); actualizar(); return; }
-    box.className = `resultado ${d.rechazado ? "ok" : "bad"}`;
-    box.replaceChildren(
-      h("p", {}, h("strong", { class: d.rechazado ? "ok-text" : "bad-text" }, d.rechazado ? "Ataque rechazado por la validación" : "El ataque NO fue rechazado")),
-      d.mensaje ? h("p", {}, d.mensaje) : null,
-      (d.motivos || []).length ? h("ul", {}, d.motivos.map((m) => h("li", {}, m))) : null,
-      h("p", { class: "small" }, d.cadena_intacta ? "Tu cadena quedó intacta." : "Atención: la cadena cambió.",
-        typeof d.enviados === "number" ? ` Enviado a ${d.enviados} par(es).` : ""));
-    mostrar(box, true);
-    actualizar();
   });
 
   $("#filtro-bitacora").addEventListener("change", () => { ui.clavesBitacora = ""; if (ui.est) renderBitacora(ui.est); });
