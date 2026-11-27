@@ -1,11 +1,10 @@
 """Rutas JSON. Sólo reciben la petición, validan las entradas y llaman al núcleo (models/)."""
 from flask import Blueprint, current_app, jsonify, render_template, request
 
-from controllers.entradas import booleano, contrasena, datos, entero, opcion, texto
+from controllers.entradas import booleano, contrasena, datos, entero, texto
 from models import ataques
 from models.bloque import MONTO_MAX
 from models.errores import ErrorEntrada, ErrorEstado
-from models.pos import FRAUDES, REGLAS_CASTIGO
 from models.pow import (DIF_MAX, DIF_MIN, K_MAX, K_MIN, PAUSA_MAX, PAUSA_MIN, RONDAS_MAX, RONDAS_MIN, SERIE_MAX,
                         SERIE_MIN)
 from models.red import N_MAX, N_MIN, RECOMPENSA_MAX, RECOMPENSA_MIN, SALDO_MAX, SALDO_MIN, SEMILLA_MAX
@@ -18,11 +17,8 @@ def _sim():
     return current_app.config["SIMULADOR"]
 
 
-def _red(version: str, consenso: str | None = None):
-    red = _sim().red(version)
-    if consenso and red.consenso != consenso:
-        raise ErrorEntrada(f"Esta acción sólo existe en la versión {consenso.upper()}.")
-    return red
+def _red(version: str):
+    return _sim().red(version)
 
 
 def _ok(mensaje: str, **extra):
@@ -41,7 +37,7 @@ def estado(version):
     red = _red(version)
     with red.lock:
         datos_red = red.publico()
-    datos_red["ataques"] = ataques.catalogo(red.consenso)
+    datos_red["ataques"] = ataques.catalogo()
     return jsonify(ok=True, **datos_red)
 
 
@@ -76,7 +72,7 @@ def reiniciar(version):
         "semilla": entero(d, "semilla", "La semilla", 0, SEMILLA_MAX, defecto=2026),
         "saldo_inicial": entero(d, "saldo_inicial", "El saldo inicial", SALDO_MIN, SALDO_MAX, defecto=100),
         "recompensa": entero(d, "recompensa", "La recompensa por bloque", RECOMPENSA_MIN, RECOMPENSA_MAX,
-                             defecto=50 if version == "pow" else 10),
+                             defecto=50),
         "reproducible": booleano(d, "reproducible", "Modo reproducible", defecto=False),
     }
     red = _sim().reiniciar(version, contrasena=contrasena(d, "contrasena", "La contraseña"), **parametros)
@@ -127,23 +123,11 @@ def atacar(version):
     return _ok(resultado["mensaje"], rechazado=resultado["rechazado"])
 
 
-@api.post("/nodos/<nodo_id>/deshonesto")
-def marcar_deshonesto(version, nodo_id):
-    d = datos()
-    red = _red(version, "pos")
-    valor = booleano(d, "deshonesto", "El campo deshonesto")
-    with red.lock:
-        nodo = red.nodo(nodo_id)
-        nodo.deshonesto = valor
-        red.evento("pos", f"{nodo.id} marcado como {'DESHONESTO' if valor else 'honesto'}.")
-    return _ok(f"{nodo.id} ahora es {'deshonesto: si lo sortean propondrá un bloque inválido' if valor else 'honesto'}.")
-
-
 # ---------------------------------------------------------------- PoW
 @api.post("/minar")
 def minar(version):
     d = datos()
-    red = _red(version, "pow")
+    red = _red(version)
     mensaje = red.motor.iniciar(
         dificultad=entero(d, "dificultad", "La dificultad", DIF_MIN, DIF_MAX),
         nonces_por_ronda=entero(d, "nonces_por_ronda", "Los nonces por ronda", K_MIN, K_MAX, defecto=100),
@@ -157,80 +141,4 @@ def minar(version):
 
 @api.post("/minar/cancelar")
 def cancelar_minado(version):
-    return _ok(_red(version, "pow").motor.cancelar())
-
-
-# ---------------------------------------------------------------- PoS
-@api.post("/pos/config")
-def configurar_pos(version):
-    d = datos()
-    red = _red(version, "pos")
-    mensaje = red.motor.configurar(
-        tam_comite=entero(d, "tam_comite", "El tamaño del comité", 0, N_MAX, defecto=0),
-        regla=opcion(d, "regla", "La regla de castigo", REGLAS_CASTIGO, defecto="A"),
-        alfa_pct=entero(d, "alfa_pct", "α (%)", 1, 100, defecto=50),
-        fraude=opcion(d, "fraude", "El fraude", FRAUDES, defecto="firma"),
-    )
-    return _ok(mensaje)
-
-
-@api.post("/pos/ronda")
-def iniciar_ronda(version):
-    datos()
-    return _ok(_red(version, "pos").motor.iniciar_ronda())
-
-
-@api.post("/pos/apostar")
-def apostar(version):
-    d = datos()
-    red = _red(version, "pos")
-    return _ok(red.motor.apostar(texto(d, "nodo", "El nodo"), entero(d, "monto", "La apuesta", 1, MONTO_MAX)))
-
-
-@api.post("/pos/apuestas-automaticas")
-def apuestas_automaticas(version):
-    datos()
-    return _ok(_red(version, "pos").motor.apuestas_automaticas())
-
-
-@api.post("/pos/sortear")
-def sortear(version):
-    datos()
-    return _ok(_red(version, "pos").motor.sortear_proponente())
-
-
-@api.post("/pos/candidato")
-def candidato(version):
-    datos()
-    return _ok(_red(version, "pos").motor.construir_candidato())
-
-
-@api.post("/pos/votar")
-def votar(version):
-    d = datos()
-    red = _red(version, "pos")
-    return _ok(red.motor.votar(texto(d, "nodo", "El nodo"), booleano(d, "a_favor", "El sentido del voto")))
-
-
-@api.post("/pos/votacion-automatica")
-def votacion_automatica(version):
-    datos()
-    return _ok(_red(version, "pos").motor.votacion_automatica())
-
-
-@api.post("/pos/cerrar")
-def cerrar_votacion(version):
-    datos()
-    return _ok(_red(version, "pos").motor.cerrar_votacion())
-
-
-@api.post("/pos/ronda-automatica")
-def ronda_automatica(version):
-    datos()
-    return _ok(_red(version, "pos").motor.ronda_automatica())
-
-
-@api.post("/pos/cancelar")
-def cancelar_ronda(version):
-    datos()
-    return _ok(_red(version, "pos").motor.cancelar_ronda())
+    return _ok(_red(version).motor.cancelar())

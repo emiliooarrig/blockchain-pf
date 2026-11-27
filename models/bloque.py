@@ -1,9 +1,8 @@
 """Transacciones, bloques, hash canónico y estado de cuentas derivado de una cadena.
 
-Estructura común del bloque (PoW y PoS):
-    numero, timestamp, transacciones, hash_anterior, raiz_merkle, nonce, proponente, recompensa, hash
-PoW agrega:  dificultad, firma_minero (firma del proponente sobre el hash, fuera del hash)
-PoS agrega:  validadores, intento, excluidos, castigos, firma_proponente, votos
+Estructura del bloque (Proof of Work, único consenso del sistema):
+    numero, timestamp, transacciones, hash_anterior, raiz_merkle, nonce, proponente, recompensa, hash,
+    dificultad, firma_minero (firma del proponente sobre el hash, fuera del hash)
 El génesis (numero 0) agrega: cuentas (clave pública y saldo inicial de cada nodo) y parametros.
 """
 import copy
@@ -23,7 +22,6 @@ CAMPOS_COMUNES = ("numero", "timestamp", "transacciones", "hash_anterior", "raiz
                   "recompensa", "hash")
 EXCLUIDOS_HASH = ("hash", "transacciones", "firma_minero")
 CAMPOS_POW = CAMPOS_COMUNES + ("dificultad", "firma_minero")
-CAMPOS_POS = CAMPOS_COMUNES + ("validadores", "intento", "excluidos", "castigos", "firma_proponente", "votos")
 CAMPOS_GENESIS = CAMPOS_COMUNES + ("cuentas", "parametros")
 
 

@@ -114,12 +114,3 @@ def booleano(d: dict, campo: str, nombre: str, defecto: bool | None = None) -> b
     if isinstance(valor, str) and valor.strip().lower() in FALSO:
         return False
     raise ErrorEntrada(f"{nombre} debe ser verdadero o falso.")
-
-
-def opcion(d: dict, campo: str, nombre: str, opciones: tuple, defecto: str | None = None) -> str:
-    valor = d.get(campo)
-    if _vacio(valor) and defecto is not None:
-        return defecto
-    if not isinstance(valor, str) or valor.strip() not in opciones:
-        raise ErrorEntrada(f"{nombre} debe ser una de: {', '.join(opciones)}.")
-    return valor.strip()

@@ -1,10 +1,10 @@
-"""Contenedor de las dos simulaciones (PoW y PoS), cada una con su propia red de nodos."""
+"""Contenedor de la simulación Proof of Work (una sola red de nodos en memoria)."""
 import threading
 
 from models.errores import ErrorEntrada
 from models.red import PARAMETROS_INICIALES, Red
 
-VERSIONES = ("pow", "pos")
+VERSIONES = ("pow",)
 
 
 class Simulador:
@@ -15,7 +15,7 @@ class Simulador:
 
     def red(self, version: str) -> Red:
         if version not in self.redes:
-            raise ErrorEntrada(f"Versión desconocida «{str(version)[:20]}»; usa pow o pos.")
+            raise ErrorEntrada(f"Versión desconocida «{str(version)[:20]}»; el sistema sólo usa Proof of Work.")
         return self.redes[version]
 
     def reiniciar(self, version: str, contrasena: str | None = None, **parametros) -> Red:

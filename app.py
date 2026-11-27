@@ -1,4 +1,4 @@
-"""Simulador de blockchain con Proof of Work y Proof of Stake (Flask + MVC).
+"""Simulador de blockchain con Proof of Work (Flask + MVC).
 
 Ejecutar:  flask run      (o bien: python app.py)
 """

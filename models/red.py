@@ -15,9 +15,8 @@ from models.bloque import (MAX_TX_POR_BLOQUE, MONTO_MAX, Estado, ErrorValidacion
 from models.cripto import ParClaves
 from models.keystore import derivar_claves
 from models.errores import ErrorEntrada, ErrorEstado
-from models.pos import MotorPoS
 from models.pow import MotorPoW
-from models.validacion import validar_bloque, validar_cadena
+from models.validacion import validar_cadena
 
 N_MIN, N_MAX = 10, 20
 SALDO_MIN, SALDO_MAX = 1, 1_000_000
@@ -29,7 +28,6 @@ INICIO_RELOJ_SIMULADO = 1_767_225_600.0  # 2026-01-01 00:00:00 UTC
 
 PARAMETROS_INICIALES = {
     "pow": {"n": 10, "semilla": 2026, "saldo_inicial": 100, "recompensa": 50, "reproducible": False},
-    "pos": {"n": 10, "semilla": 2026, "saldo_inicial": 100, "recompensa": 10, "reproducible": False},
 }
 
 
@@ -72,7 +70,6 @@ class Nodo:
         self.claves = claves
         self.cadena = [_copia_json(genesis)]
         self.estado = Estado(self.cadena[0])
-        self.deshonesto = False
         self.ultimo_rechazo = ""
 
     @property
@@ -104,22 +101,12 @@ class Nodo:
         self.ultimo_rechazo = motivo
         return False, motivo
 
-    def evaluar_propuesta(self, candidato: dict) -> tuple[bool, str]:
-        """Revisión que hace un validador PoS honesto antes de votar (contra su propia copia de la cadena)."""
-        try:
-            validar_bloque(self.estado.copia(), _copia_json(candidato), propuesta=True)
-            return True, "válido"
-        except ErrorValidacion as exc:
-            return False, str(exc)
-        except (TypeError, KeyError, ValueError, AttributeError):
-            return False, "bloque con formato inválido"
-
 
 class Red:
     def __init__(self, consenso: str, n: int, semilla: int, saldo_inicial: int, recompensa: int,
                  reproducible: bool = False, contrasena: str | None = None):
-        if consenso not in ("pow", "pos"):
-            raise ErrorEntrada("El consenso debe ser «pow» o «pos».")
+        if consenso != "pow":
+            raise ErrorEntrada("El consenso debe ser «pow»; el sistema sólo usa Proof of Work.")
         _rango(n, N_MIN, N_MAX, "El número de nodos N")
         _rango(semilla, 0, SEMILLA_MAX, "La semilla")
         _rango(saldo_inicial, SALDO_MIN, SALDO_MAX, "El saldo inicial")
@@ -142,12 +129,11 @@ class Red:
         ids = [f"N{i:02d}" for i in range(n)]
         cuentas = {nid: {"clave_publica": c.publica, "saldo": saldo_inicial} for nid, c in zip(ids, claves)}
         parametros = {"consenso": consenso, "recompensa": recompensa,
-                      "confirmaciones": CONFIRMACIONES_POW if consenso == "pow" else 0}
+                      "confirmaciones": CONFIRMACIONES_POW}
         genesis = crear_genesis(cuentas, parametros, self.reloj())
         self.nodos = [Nodo(i, nid, c, genesis) for i, (nid, c) in enumerate(zip(ids, claves))]
-        self.motor = MotorPoW(self) if consenso == "pow" else MotorPoS(self)
-        nombre = "Proof of Work" if consenso == "pow" else "Proof of Stake"
-        self.evento("red", f"Simulación {nombre} creada: {n} nodos, saldo inicial {saldo_inicial}, recompensa "
+        self.motor = MotorPoW(self)
+        self.evento("red", f"Simulación Proof of Work creada: {n} nodos, saldo inicial {saldo_inicial}, recompensa "
                            f"{recompensa}, semilla {semilla}{' (reloj simulado: reproducible)' if reproducible else ''}.")
 
     # ---------- utilidades ----------
@@ -172,8 +158,7 @@ class Red:
         return max(self.nodos, key=lambda n: (n.altura, -n.indice))
 
     def compromisos(self, nodo_id: str) -> int:
-        salida = sum(tx["monto"] for tx in self.pendientes if tx["emisor"] == nodo_id)
-        return salida + self.motor.retenido(nodo_id)
+        return sum(tx["monto"] for tx in self.pendientes if tx["emisor"] == nodo_id)
 
     def saldo_disponible(self, nodo_id: str) -> int:
         return self.referencia().estado.saldos[nodo_id] - self.compromisos(nodo_id)
@@ -207,7 +192,7 @@ class Red:
             disponible = self.saldo_disponible(tx["emisor"])
             if tx["monto"] > disponible:
                 comprometido = self.compromisos(tx["emisor"])
-                detalle = f" ({comprometido} ya comprometido en pendientes o apuestas)" if comprometido else ""
+                detalle = f" ({comprometido} ya comprometido en pendientes)" if comprometido else ""
                 self.evento("rechazo", f"Transacción rechazada{origen}: saldo insuficiente de {tx['emisor']} "
                                        f"(disponible {disponible}, monto {tx['monto']}).")
                 raise ErrorEntrada(f"Saldo insuficiente: {tx['emisor']} tiene {disponible} disponible{detalle} "
@@ -289,8 +274,8 @@ class Red:
             nodos.append({
                 "id": n.id, "indice": n.indice, "altura": n.altura, "ultimo_hash": n.ultimo_hash,
                 "sincronizado": n.ultimo_hash == ref.ultimo_hash, "saldo": saldo,
-                "disponible": saldo - self.compromisos(n.id), "retenido": self.motor.retenido(n.id),
-                "pendiente_recompensa": ref.estado.pendiente_de(n.id), "deshonesto": n.deshonesto,
+                "disponible": saldo - self.compromisos(n.id),
+                "pendiente_recompensa": ref.estado.pendiente_de(n.id),
                 "clave_publica": n.claves.publica, "ultimo_rechazo": n.ultimo_rechazo,
             })
         return {

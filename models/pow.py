@@ -95,9 +95,6 @@ class MotorPoW:
         self._cancelar = threading.Event()
         self._hilo = None
 
-    def retenido(self, nodo_id: str) -> int:
-        return 0
-
     # ---------- control ----------
     def iniciar(self, dificultad: int, nonces_por_ronda: int, max_rondas: int, bloques: int = 1,
                 pausa_ms: int = 120, auto_transacciones: bool = False, en_hilo: bool = True) -> str:

@@ -7,21 +7,18 @@ from models import merkle
 from models.bloque import MAX_TX_POR_BLOQUE, copiar, hash_bloque, nueva_transaccion, preparar_hasher
 from models.cripto import sha256_hex
 from models.errores import ErrorEntrada, ErrorEstado
-from models.pos import mensaje_propuesta, mensaje_voto
 from models.pow import cumple_objetivo
 
 LIMITE_MINADO_ATAQUE = 3_000_000
 
 ATAQUES_CADENA = {
-    "hash_alterado": ("Bloque con hash alterado", None),
-    "hash_anterior_alterado": ("Bloque con hash_anterior alterado", None),
-    "bloque_intermedio": ("Manipular un bloque intermedio", None),
-    "cadena_corta": ("Cadena más corta", None),
-    "cadena_mal_formada": ("Cadena con un bloque mal formado", None),
-    "recompensa_falsa": ("Bloque con recompensa falsa", "pow"),
-    "doble_gasto_bloque": ("Doble gasto dentro de un bloque", "pow"),
-    "voto_no_validador": ("Voto de un nodo que no es validador", "pos"),
-    "voto_doble": ("Un validador vota dos veces", "pos"),
+    "hash_alterado": "Bloque con hash alterado",
+    "hash_anterior_alterado": "Bloque con hash_anterior alterado",
+    "bloque_intermedio": "Manipular un bloque intermedio",
+    "cadena_corta": "Cadena más corta",
+    "cadena_mal_formada": "Cadena con un bloque mal formado",
+    "recompensa_falsa": "Bloque con recompensa falsa",
+    "doble_gasto_bloque": "Doble gasto dentro de un bloque",
 }
 ATAQUES_TX = {
     "firma_alterada": "Transacción con firma alterada",
@@ -31,18 +28,18 @@ ATAQUES_TX = {
 }
 
 
-def catalogo(consenso: str) -> dict:
+def catalogo() -> dict:
     return {
-        "cadena": [{"id": k, "nombre": n} for k, (n, solo) in ATAQUES_CADENA.items() if solo in (None, consenso)],
+        "cadena": [{"id": k, "nombre": n} for k, n in ATAQUES_CADENA.items()],
         "transaccion": [{"id": k, "nombre": n} for k, n in ATAQUES_TX.items()],
     }
 
 
 # ---------------------------------------------------------------- ataques a la cadena
 def atacar_cadena(red, tipo: str, atacante_id: str | None) -> dict:
-    if tipo not in ATAQUES_CADENA or ATAQUES_CADENA[tipo][1] not in (None, red.consenso):
-        raise ErrorEntrada(f"Ataque desconocido para esta versión: {str(tipo)[:40]!r}.")
-    nombre = ATAQUES_CADENA[tipo][0]
+    if tipo not in ATAQUES_CADENA:
+        raise ErrorEntrada(f"Ataque desconocido: {str(tipo)[:40]!r}.")
+    nombre = ATAQUES_CADENA[tipo]
     with red.lock:
         atacante = red.nodo(atacante_id) if atacante_id else red.nodos[-1]
         cadena = copiar(atacante.cadena)
@@ -83,21 +80,14 @@ def _f_bloque_intermedio(red, atacante, cadena, altura):
     _exigir_altura(altura, 2)
     k = altura // 2
     b = cadena[k]
-    if red.consenso == "pow":
-        # Se roba el bloque: el atacante se pone de proponente (y de receptor de la recompensa), lo vuelve a minar
-        # y lo firma con su propia clave. El bloque k queda válido por sí solo, pero el hash_anterior del
-        # bloque k+1 ya no coincide → se rechaza toda la cadena.
-        nuevo = atacante if atacante.id != b["proponente"] else next(n for n in red.nodos if n.id != b["proponente"])
-        b["proponente"] = nuevo.id
-        _minar(b, nuevo.claves)
-        return (f"{atacante.id} reescribió el bloque intermedio #{k} (proponente → {nuevo.id}) y lo volvió a minar; "
-                f"el bloque #{k + 1} ya no enlaza con él.")
-    tx = b["transacciones"][0]
-    tx["monto"] += 1
-    b["raiz_merkle"] = merkle.raiz_transacciones(b["transacciones"])
-    b["hash"] = hash_bloque(b)
-    return (f"{atacante.id} subió en 1 el monto de una transacción del bloque intermedio #{k} y recalculó la raíz "
-            f"de Merkle y el hash.")
+    # Se roba el bloque: el atacante se pone de proponente (y de receptor de la recompensa), lo vuelve a minar
+    # y lo firma con su propia clave. El bloque k queda válido por sí solo, pero el hash_anterior del
+    # bloque k+1 ya no coincide → se rechaza toda la cadena.
+    nuevo = atacante if atacante.id != b["proponente"] else next(n for n in red.nodos if n.id != b["proponente"])
+    b["proponente"] = nuevo.id
+    _minar(b, nuevo.claves)
+    return (f"{atacante.id} reescribió el bloque intermedio #{k} (proponente → {nuevo.id}) y lo volvió a minar; "
+            f"el bloque #{k + 1} ya no enlaza con él.")
 
 
 def _f_cadena_corta(red, atacante, cadena, altura):
@@ -144,36 +134,6 @@ def _f_doble_gasto_bloque(red, atacante, cadena, altura):
             f"(su saldo es {saldo}).")
 
 
-def _ultimo_bloque_pos(cadena, altura) -> dict:
-    _exigir_altura(altura, 1)
-    return cadena[-1]
-
-
-def _f_voto_no_validador(red, atacante, cadena, altura):
-    b = _ultimo_bloque_pos(cadena, altura)
-    en_comite = {v["id"] for v in b["validadores"]}
-    intruso = next((n for n in red.nodos if n.id not in en_comite), None)
-    hp = sha256_hex(mensaje_propuesta(b))
-    if intruso is None:
-        # Todos los nodos estaban en el comité: el atacante inventa un votante ajeno y firma por él.
-        falso = "N99"
-        b["votos"].append({"validador": falso, "peso": 1, "a_favor": True,
-                           "firma": atacante.claves.firmar(mensaje_voto(hp, falso, True))})
-        b["hash"] = hash_bloque(b)
-        return f"{atacante.id} agregó al bloque #{altura} un voto de {falso}, que no pertenece al comité de validadores."
-    b["votos"].append({"validador": intruso.id, "peso": 1, "a_favor": True,
-                       "firma": intruso.claves.firmar(mensaje_voto(hp, intruso.id, True))})
-    b["hash"] = hash_bloque(b)
-    return f"{atacante.id} agregó al bloque #{altura} un voto firmado por {intruso.id}, que no era validador."
-
-
-def _f_voto_doble(red, atacante, cadena, altura):
-    b = _ultimo_bloque_pos(cadena, altura)
-    b["votos"].append(copiar(b["votos"][0]))
-    b["hash"] = hash_bloque(b)
-    return f"{atacante.id} duplicó en el bloque #{altura} el voto de {b['votos'][0]['validador']}."
-
-
 _FABRICAS = {
     "hash_alterado": _f_hash_alterado,
     "hash_anterior_alterado": _f_hash_anterior,
@@ -182,8 +142,6 @@ _FABRICAS = {
     "cadena_mal_formada": _f_mal_formada,
     "recompensa_falsa": _f_recompensa_falsa,
     "doble_gasto_bloque": _f_doble_gasto_bloque,
-    "voto_no_validador": _f_voto_no_validador,
-    "voto_doble": _f_voto_doble,
 }
 
 

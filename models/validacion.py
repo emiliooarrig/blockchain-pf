@@ -1,34 +1,26 @@
-"""Validación de bloques y de cadenas completas (común a PoW y PoS).
+"""Validación de bloques y de cadenas completas (Proof of Work).
 
 Un nodo acepta una cadena recibida sólo si:
   (a) cada hash coincide con el recalculado y cada hash_anterior con el del bloque previo;
   (b) todas las firmas son válidas y nadie gasta más de lo que tiene (incluido el doble gasto);
-  (c) se cumple la regla del consenso (PoW: hash bajo el objetivo; PoS: sorteo, castigos y 2/3 de los votos);
+  (c) se cumple la regla del consenso (PoW: hash bajo el objetivo y firma del minero);
   (d) es más larga que la propia (esto lo revisa el nodo, en red.py).
 """
-from models.bloque import (CAMPOS_GENESIS, CAMPOS_POS, CAMPOS_POW, MAX_TX_POR_BLOQUE, Estado, ErrorValidacion,
+from models.bloque import (CAMPOS_GENESIS, CAMPOS_POW, MAX_TX_POR_BLOQUE, Estado, ErrorValidacion,
                            aplicar_transacciones, es_entero, es_numero, hash_bloque, revisar_campos)
 from models.cripto import LARGO_CLAVE_HEX, es_hex
-from models.pos import verificar_pos
 from models.pow import DIF_MAX, DIF_MIN, verificar_pow
 
 
-def validar_bloque(estado: Estado, bloque, propuesta: bool = False, sin_pruebas: bool = False) -> list:
+def validar_bloque(estado: Estado, bloque) -> list:
     """Valida `bloque` como sucesor del estado y lo aplica sobre `estado`.
-    Devuelve las recompensas que maduraron con este bloque.
-    Con propuesta=True (votación PoS) se omiten el hash final y los votos, que aún no existen."""
-    pos = estado.params["consenso"] == "pos"
-    if propuesta:
-        if not isinstance(bloque, dict) or bloque.get("hash") != "" or bloque.get("votos") != []:
-            raise ErrorValidacion("la propuesta debe llegar sin hash ni votos")
-        revisar_campos({**bloque, "hash": "0" * 64}, CAMPOS_POS)
-    else:
-        revisar_campos(bloque, CAMPOS_POS if pos else CAMPOS_POW)
+    Devuelve las recompensas que maduraron con este bloque."""
+    revisar_campos(bloque, CAMPOS_POW)
     if bloque["numero"] != estado.altura + 1:
         raise ErrorValidacion(f"número de bloque {bloque['numero']} cuando se esperaba {estado.altura + 1}")
     if bloque["hash_anterior"] != estado.ultimo_hash:
         raise ErrorValidacion("hash_anterior no coincide con el hash del bloque previo")
-    if not propuesta and hash_bloque(bloque) != bloque["hash"]:
+    if hash_bloque(bloque) != bloque["hash"]:
         raise ErrorValidacion("el hash no coincide con el contenido del bloque (fue alterado)")
     if bloque["timestamp"] < estado.ultimo_ts:
         raise ErrorValidacion("timestamp anterior al del bloque previo")
@@ -42,12 +34,7 @@ def validar_bloque(estado: Estado, bloque, propuesta: bool = False, sin_pruebas:
     if len(bloque["transacciones"]) > MAX_TX_POR_BLOQUE:
         raise ErrorValidacion(f"demasiadas transacciones (máximo {MAX_TX_POR_BLOQUE})")
 
-    if pos:
-        if bloque["nonce"] != 0:
-            raise ErrorValidacion("en PoS el nonce debe ser 0")
-        verificar_pos(estado, bloque, con_votos=not propuesta, sin_pruebas=sin_pruebas)
-    else:
-        verificar_pow(estado, bloque)
+    verificar_pow(estado, bloque)
     aplicar_transacciones(estado, bloque["transacciones"], bloque["numero"])
 
     estado.recompensas.append({"numero": bloque["numero"], "nodo": bloque["proponente"], "monto": bloque["recompensa"]})
@@ -69,7 +56,7 @@ def revisar_genesis(genesis, hash_esperado: str) -> None:
     for c in cuentas.values():
         if not isinstance(c, dict) or not es_hex(c.get("clave_publica"), LARGO_CLAVE_HEX) or not es_entero(c.get("saldo")):
             raise ErrorValidacion("génesis con cuentas inválidas")
-    if params.get("consenso") not in ("pow", "pos") or not es_entero(params.get("recompensa")) \
+    if params.get("consenso") != "pow" or not es_entero(params.get("recompensa")) \
             or not es_entero(params.get("confirmaciones")):
         raise ErrorValidacion("génesis con parámetros inválidos")
     dificultad = params.get("dificultad")
