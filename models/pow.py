@@ -34,10 +34,12 @@ def verificar_pow(estado, bloque: dict) -> None:
     d = bloque["dificultad"]
     if not es_entero(d) or not DIF_MIN <= d <= DIF_MAX:
         raise ErrorValidacion(f"dificultad fuera de rango ({d!r}); debe estar entre {DIF_MIN} y {DIF_MAX}")
-    # AUD-004: si el génesis fija la dificultad de la red, el minero no la elige (el simulador no la fija).
-    fija = estado.params.get("dificultad")
+    # AUD-004 / C9: si el génesis fija la dificultad, el minero no la elige: rige la vigente (la del génesis o la
+    # que acordó la mayoría con un ajuste co-firmado ya aplicado). El simulador no la fija.
+    fija = estado.dificultad_vigente
     if fija is not None and d != fija:
-        raise ErrorValidacion(f"dificultad {d} distinta de la dificultad de la red ({fija}) fijada en el génesis")
+        raise ErrorValidacion(f"dificultad {d} distinta de la dificultad vigente de la red ({fija}); la fija el "
+                              f"génesis o un ajuste co-firmado")
     if not cumple_objetivo(bloque["hash"], d):
         raise ErrorValidacion(f"el hash no cumple la prueba de trabajo (requiere {d} ceros iniciales)")
     firma = bloque["firma_minero"]

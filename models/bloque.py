@@ -145,6 +145,8 @@ class Estado:
         self.recompensas = []   # recompensas aún sin madurar: {"numero", "nodo", "monto"}
         self.tx_ids = set()     # transacciones ya incluidas (evita repetirlas: doble gasto entre bloques)
         self.sellos = {}        # doc_hash -> sellos en orden de cadena (el primero tiene la prioridad)
+        self.dificultad_vigente = self.params.get("dificultad")   # None: la red no la fija (cada minero elige)
+        self.ajustes = []       # ajustes de dificultad aplicados: {numero, dificultad_anterior, dificultad, ...}
         self.altura = 0
         self.ultimo_hash = genesis["hash"]
         self.ultimo_ts = genesis["timestamp"]
@@ -155,6 +157,7 @@ class Estado:
         nuevo.recompensas = list(self.recompensas)
         nuevo.tx_ids = set(self.tx_ids)
         nuevo.sellos = {k: list(v) for k, v in self.sellos.items()}
+        nuevo.ajustes = list(self.ajustes)
         return nuevo
 
     def madurar(self) -> list:
@@ -199,10 +202,23 @@ def revisar_transaccion(estado: Estado, tx, vistos: set | None = None) -> str:
 
 def aplicar_transacciones(estado: Estado, transacciones: list, numero: int | None = None) -> None:
     """Valida y aplica en orden. Detecta el doble gasto dentro del mismo bloque.
-    Los sellos multifirma (tipo "sello") no mueven saldos; se registran en estado.sellos con el número del bloque."""
+    Los sellos multifirma (tipo "sello") no mueven saldos; se registran en estado.sellos con el número del bloque.
+    Un ajuste_dificultad tampoco mueve saldos: cambia estado.dificultad_vigente (rige desde el bloque siguiente)."""
+    from models.ajuste_dificultad import es_ajuste, registrar_ajuste, revisar_ajuste
     from models.multifirma import es_sello, registrar_sello, revisar_sello
-    vistos, gastado = set(), {}
+    vistos, gastado, ajustes_en_bloque = set(), {}, 0
     for i, tx in enumerate(transacciones, 1):
+        if es_ajuste(tx):
+            if ajustes_en_bloque:
+                raise ErrorValidacion(f"transacción {i}: un bloque admite como máximo un ajuste de dificultad")
+            try:
+                tid = revisar_ajuste(estado, tx, vistos)
+            except ErrorValidacion as exc:
+                raise ErrorValidacion(f"transacción {i}: {exc}") from None
+            registrar_ajuste(estado, tx, tid, numero)
+            ajustes_en_bloque += 1
+            vistos.add(tid)
+            continue
         if es_sello(tx):
             try:
                 tid = revisar_sello(estado, tx, vistos)

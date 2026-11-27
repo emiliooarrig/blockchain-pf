@@ -28,6 +28,7 @@ from models.bloque import (CAMPOS_POW, MAX_TX_POR_BLOQUE, Estado, ErrorValidacio
 from models import merkle
 from models.errores import ErrorEntrada, ErrorEstado
 from models.keystore import ErrorClave, abrir_almacen, leer_publica
+from models.ajuste_dificultad import es_ajuste, id_ajuste, revisar_ajuste
 from models.multifirma import es_sello, id_sello, revisar_sello
 from models.pow import DIF_MAX, DIF_MIN, cumple_objetivo
 from models.validacion import revisar_genesis, validar_bloque, validar_cadena
@@ -78,7 +79,13 @@ def trabajo(cadena) -> int:
 
 
 def _id_tx(tx) -> str:
+    if es_ajuste(tx):
+        return id_ajuste(tx)
     return id_sello(tx) if es_sello(tx) else id_transaccion(tx)
+
+
+def _es_transferencia(tx) -> bool:
+    return not es_sello(tx) and not es_ajuste(tx)
 
 
 def _json_puro(obj):
@@ -347,7 +354,9 @@ class NodoCompleto:
         vistos, comprometido, salida = set(), {}, []
         for tx in candidatas:
             try:
-                if es_sello(tx):
+                if es_ajuste(tx):
+                    tid = revisar_ajuste(estado, tx)
+                elif es_sello(tx):
                     tid = revisar_sello(estado, tx)
                 else:
                     tid = revisar_transaccion(estado, tx)
@@ -375,7 +384,9 @@ class NodoCompleto:
             if len(self.pendientes) >= MAX_PENDIENTES:
                 raise ErrorEstadoNoAplicable(f"La lista de pendientes está llena ({MAX_PENDIENTES}); mina un bloque primero.")
             try:
-                if es_sello(tx):
+                if es_ajuste(tx):
+                    tid = revisar_ajuste(self.estado, tx)
+                elif es_sello(tx):
                     tid = revisar_sello(self.estado.copia(), tx)
                 else:
                     tid = revisar_transaccion(self.estado, tx)
@@ -391,7 +402,7 @@ class NodoCompleto:
                 self.evento("rechazo", f"Transacción rechazada{de}: ya está en la lista de pendientes.")
                 raise ErrorEntradaNoAplicable("Transacción rechazada: ya está en la lista de pendientes (duplicada).",
                                               conocida=True)
-            if not es_sello(tx):
+            if _es_transferencia(tx):
                 disponible = self._disponible(tx["emisor"])
                 if tx["monto"] > disponible:
                     self.evento("rechazo", f"Transacción rechazada{de}: saldo insuficiente de {tx['emisor']} "
@@ -400,7 +411,10 @@ class NodoCompleto:
                                                   f"e intenta enviar {tx['monto']}.")
             self.pendientes.append(tx)
             self._guardar_pendientes()
-            if es_sello(tx):
+            if es_ajuste(tx):
+                self.evento("dificultad", f"Ajuste de dificultad a {tx['dificultad']} (de {tx['proponente']}, "
+                                          f"{len(tx['firmas'])} firma(s)){de}.")
+            elif es_sello(tx):
                 self.evento("sello", f"Sello de {tx['doc_hash'][:12]}… ({tx['laboratorio']}, "
                                      f"{len(tx['firmas'])}/{len(tx['autores'])} firmas){de}.")
             else:
@@ -416,7 +430,7 @@ class NodoCompleto:
             return False
 
     def _disponible(self, nodo_id: str) -> int:
-        comprometido = sum(p["monto"] for p in self.pendientes if not es_sello(p) and p["emisor"] == nodo_id)
+        comprometido = sum(p["monto"] for p in self.pendientes if _es_transferencia(p) and p["emisor"] == nodo_id)
         return self.estado.saldos[nodo_id] - comprometido
 
     # ------------------------------------------------------------------ cambios de cadena
@@ -575,14 +589,20 @@ class NodoCompleto:
 
     @property
     def dificultad_red(self) -> int | None:
-        """Dificultad fija de la red (AUD-004) si el génesis la define; None si cada minero la elige."""
+        """Dificultad vigente de la red (AUD-004/C9): la del génesis o la del último ajuste co-firmado aplicado; None
+        si el génesis no la fija (entonces cada minero la elige)."""
+        return self.estado.dificultad_vigente
+
+    @property
+    def dificultad_genesis(self) -> int | None:
         return self.genesis["parametros"].get("dificultad")
 
     def iniciar_minado(self, dificultad: int | None = None, continuo: bool = False) -> str:
         red = self.dificultad_red
         if red is not None:
             if dificultad is not None and dificultad != red:
-                raise ErrorEntrada(f"La dificultad de esta red está fijada en el génesis ({red}); "
+                origen = "fijada en el génesis" if not self.estado.ajustes else "fijada por la red (génesis y ajustes)"
+                raise ErrorEntrada(f"La dificultad de esta red está {origen} ({red}); "
                                    f"no se puede minar con {dificultad}.")
             dificultad = red
         elif dificultad is None:
@@ -617,16 +637,19 @@ class NodoCompleto:
     def _seleccionar(self) -> tuple[list, Estado]:
         """Bajo candado: hasta MAX_TX_POR_BLOQUE pendientes que se aplican limpiamente en orden."""
         numero = self.altura + 1
-        estado, elegidas = self.estado.copia(), []
+        estado, elegidas, hay_ajuste = self.estado.copia(), [], False
         for tx in self.pendientes:
             if len(elegidas) >= MAX_TX_POR_BLOQUE:
                 break
+            if es_ajuste(tx) and hay_ajuste:
+                continue                  # un bloque admite como máximo un ajuste de dificultad
             intento = estado.copia()
             try:
                 aplicar_transacciones(intento, [tx], numero)
             except ErrorValidacion:
                 continue
             estado = intento
+            hay_ajuste = hay_ajuste or es_ajuste(tx)
             elegidas.append(tx)
         return elegidas, estado
 
@@ -635,6 +658,9 @@ class NodoCompleto:
             txs, _ = self._seleccionar()
             if not txs:
                 return None
+            vigente = self.estado.dificultad_vigente
+            if vigente is not None:
+                dificultad = vigente      # un ajuste aplicado cambia la dificultad del siguiente bloque
             return {"numero": self.altura + 1, "timestamp": max(round(time.time(), 6), self.estado.ultimo_ts),
                     "transacciones": copiar(txs), "hash_anterior": self.punta,
                     "raiz_merkle": merkle.raiz_transacciones(txs), "nonce": 0, "dificultad": dificultad,
@@ -654,7 +680,7 @@ class NodoCompleto:
                     self._despertar.wait(1.0)
                     continue
                 version = plantilla.pop("_version")
-                resultado = self._buscar_nonce(plantilla, dificultad, cancelar, version)
+                resultado = self._buscar_nonce(plantilla, plantilla["dificultad"], cancelar, version)
                 if resultado is None:
                     continue
                 plantilla["nonce"], plantilla["hash"] = resultado
@@ -678,6 +704,7 @@ class NodoCompleto:
         prefijo = "0" * dificultad
         st = self._stats
         st["bloque"] = plantilla["numero"]
+        st["dificultad"] = dificultad
         nonce, t0 = 0, time.monotonic()
         base = st["intentos"]
         while True:
@@ -752,7 +779,11 @@ class NodoCompleto:
             est, conf = self.estado, self.estado.params["confirmaciones"]
             pendientes = []
             for tx in self.pendientes:
-                if es_sello(tx):
+                if es_ajuste(tx):
+                    pendientes.append({"id": id_ajuste(tx), "tipo": "ajuste_dificultad",
+                                       "dificultad": tx["dificultad"], "proponente": tx["proponente"],
+                                       "firmas": len(tx["firmas"])})
+                elif es_sello(tx):
                     pendientes.append({"id": id_sello(tx), "tipo": "sello", "doc_hash": tx["doc_hash"],
                                        "titulo": tx["titulo"], "laboratorio": tx["laboratorio"],
                                        "firmas": len(tx["firmas"]), "umbral": tx["umbral"]})
@@ -769,7 +800,9 @@ class NodoCompleto:
                         "bloques_rechazados": self._bloques_rechazados,
                         "cadenas_rechazadas": self._cadenas_rechazadas}
             return {"id": self.id, "altura": self.altura, "punta": self.punta, "trabajo": self._trabajo,
-                    "dificultad_red": self.dificultad_red, "consenso": consenso,
+                    "dificultad_red": self.dificultad_red, "dificultad_genesis": self.dificultad_genesis,
+                    "ajustes": [dict(a, firmantes=list(a["firmantes"])) for a in est.ajustes],
+                    "consenso": consenso,
                     "persistencia": self._persistencia(),
                     "revision": self.revision, "hash_genesis": self.hash_genesis, "desbloqueado": self.desbloqueado,
                     "minando": self._minando, "estadisticas": dict(self._stats), "confirmaciones": conf,
