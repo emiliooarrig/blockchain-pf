@@ -344,7 +344,10 @@
 
   // Enlace al nodo Sellalo: sólo si este proceso es un nodo (en modo simulador la ruta responde 409).
   fetch("/api/sellalo/estado", { cache: "no-store" })
-    .then((r) => { if (r.ok) $("#enlace-nodo").hidden = false; })
+    .then((r) => {
+      if (r.ok) $("#enlace-nodo").hidden = false;
+      else if (r.status === 409) $("#aviso-modo").hidden = false;   // proceso en modo simulador
+    })
     .catch(() => {});
 
   ui.primeraVez = true;

@@ -25,6 +25,13 @@
 </header>
 
 <main>
+  <div id="aviso-modo" class="card aviso-modo" hidden>
+    <strong>Estás en el modo simulador.</strong> La red Sellalo y el tablero de la <strong>rúbrica de evaluación</strong>
+    están en la página del nodo. Para verlos, levanta una red local de 3 laboratorios y abre <code>http://127.0.0.1:5001</code>:
+    <pre><code>python scripts/lanzar_red_local.py --labs 3 --lanzar</code></pre>
+    o recorre la demostración completa y deja los nodos abiertos (<code>http://127.0.0.1:5101</code>):
+    <pre><code>python scripts/demo_e2e.py --dejar-abiertos</code></pre>
+  </div>
   <div id="sync-banner" class="sync-banner" aria-live="polite"></div>
 
   <!-- Configuración + transacciones -->

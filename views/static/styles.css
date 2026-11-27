@@ -494,3 +494,7 @@ fieldset.autores legend { padding: 0 6px; font-size: .82rem; font-weight: 600; }
 
 /* Auditoría: los ids AUD-0NN no se parten */
 #aud-tabla-wrap td:first-child { white-space: nowrap; font-family: var(--mono); }
+
+/* Aviso en modo simulador: dónde está la rúbrica */
+.aviso-modo { border-left: 4px solid var(--accent); background: var(--accent-soft); margin-bottom: 1rem; }
+.aviso-modo pre { margin: .4rem 0; overflow-x: auto; }
