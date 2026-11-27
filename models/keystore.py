@@ -171,3 +171,17 @@ def derivar_claves(contrasena: str, sal: str) -> ParClaves:
     """Claves reproducibles para el simulador: scrypt(contraseña, sal) → semilla Ed25519."""
     _validar_contrasena(contrasena)
     return ParClaves.desde_bytes(_kdf(contrasena, sal.encode("utf-8"), SCRYPT_N_SIMULADOR))
+
+
+def metadatos_publicos(ruta: str) -> dict:
+    """Metadatos del almacén que pueden mostrarse sin contraseña (contrato C8 `/clave`): formato, algoritmos,
+    parámetros de scrypt y LONGITUDES en bytes de sal, nonce y texto cifrado. Nunca devuelve la sal, el nonce ni el
+    texto cifrado en sí. ErrorClave si el archivo no existe o no tiene el formato esperado."""
+    doc = _leer(ruta)
+    kdf, cif = doc["kdf"], doc["cifrado"]
+    return {"formato": doc["formato"], "version": doc["version"], "id": doc["id"], "clave_publica": doc["clave_publica"],
+            "kdf": {"alg": kdf["alg"], "n": kdf["n"], "r": kdf["r"], "p": kdf["p"], "largo": kdf["largo"],
+                    "bytes_sal": len(kdf["sal"]) // 2, "memoria_kib": 128 * kdf["n"] * kdf["r"] // 1024},
+            "cifrado": {"alg": cif["alg"], "bytes_nonce": len(cif["nonce"]) // 2,
+                        "bytes_texto_cifrado": len(cif["texto_cifrado"]) // 2},
+            "aad": _aad(doc["id"], doc["clave_publica"]).decode()}

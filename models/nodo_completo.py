@@ -13,12 +13,14 @@ Los callbacks de `al_cambiar` reciben `(tipo, dato)` y se invocan SIEMPRE fuera 
     "cadena"          se adoptó una cadena completa              "bloqueado"   el nodo se bloqueó (detener el servidor P2P)
     "minado"          cambió el estado del minado
 """
+import base64
 import json
 import os
 import tempfile
 import threading
 import time
 from collections import deque
+from datetime import datetime, timezone
 
 from models.bloque import (CAMPOS_POW, MAX_TX_POR_BLOQUE, Estado, ErrorValidacion, aplicar_transacciones, copiar,
                            es_entero, es_numero, hash_bloque, id_transaccion, preparar_hasher, revisar_campos,
@@ -35,6 +37,13 @@ MARGEN_FUTURO = 120.0       # segundos que se tolera un bloque "del futuro" resp
 LOTE_HASHES = 2048          # intentos entre revisiones de cancelación / cambio de punta
 ULTIMOS_BLOQUES_UI = 15
 MAX_MAXIMO_BLOQUES = 100
+MAX_REORGANIZACIONES = 20     # historial acotado que expone `publico()["consenso"]`
+ESPERA_MAX_DESBLOQUEO = 30    # segundos: tope de la espera creciente tras contraseñas incorrectas
+REGLA_CONSENSO = ("Proof of Work: una cadena es válida si cada bloque recalcula su hash, enlaza con el anterior, "
+                  "cumple la dificultad (fija en el génesis si la red la define) y trae la firma de su minero. "
+                  "Entre cadenas válidas gana la de mayor trabajo acumulado (suma de 16^dificultad); si empatan, "
+                  "la de punta con hash menor. Al adoptar otra cadena, las transacciones de los bloques "
+                  "descartados vuelven a pendientes si siguen siendo válidas.")
 
 
 class ErrorEntradaNoAplicable(ErrorEntrada):
@@ -95,6 +104,10 @@ def _escribir_atomico(ruta: str, datos) -> None:
         raise
 
 
+def _iso(t: float | None) -> str | None:
+    return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if t is not None else None
+
+
 class NodoCompleto:
     def __init__(self, dir_datos: str, genesis: dict, nodo_id: str, ruta_clave: str | None = None):
         try:
@@ -123,6 +136,13 @@ class NodoCompleto:
         self._secuencia = 0
         self.revision = 0
         self._claves = None
+        self._fallos_desbloqueo = 0         # contraseñas incorrectas seguidas (se reinicia al desbloquear)
+        self._fallos_desbloqueo_total = 0
+        self.pausa = time.sleep             # inyectable en pruebas: espera creciente tras fallos de desbloqueo
+        self._reorgs = deque(maxlen=MAX_REORGANIZACIONES)
+        self._bloques_rechazados = 0
+        self._cadenas_rechazadas = 0
+        self._pers = {"ultima_escritura": None, "error": None}
         # minado
         self._hilo = None
         self._cancelar = threading.Event()
@@ -217,7 +237,9 @@ class NodoCompleto:
     def _guardar_cadena(self) -> None:
         try:
             _escribir_atomico(self.ruta_cadena, self.cadena)
+            self._pers.update(ultima_escritura=time.time(), error=None)
         except OSError as exc:
+            self._pers["error"] = f"{type(exc).__name__}: {exc.strerror or exc}"
             self.evento("error", f"No se pudo guardar la cadena: {exc}")
 
     def _guardar_pendientes(self) -> None:
@@ -231,18 +253,61 @@ class NodoCompleto:
     def desbloqueado(self) -> bool:
         return self._claves is not None
 
+    def intentos_desbloqueo(self) -> tuple[int, int]:
+        """(contraseñas incorrectas seguidas, espera en segundos que se aplicará antes del próximo intento).
+        La espera crece 0, 1, 2, 4, 8... y no pasa de ESPERA_MAX_DESBLOQUEO."""
+        with self.lock:
+            fallos = self._fallos_desbloqueo
+        return fallos, 0 if fallos == 0 else min(ESPERA_MAX_DESBLOQUEO, 2 ** (fallos - 1))
+
+    @property
+    def desbloqueos_rechazados(self) -> int:
+        """Total de contraseñas incorrectas desde que arrancó el proceso (no se reinicia al desbloquear)."""
+        return self._fallos_desbloqueo_total
+
     def desbloquear(self, contrasena: str) -> None:
         if not self.ruta_clave:
             raise ErrorEstado("Este nodo no tiene un almacén de claves configurado.")
         with self.lock:
             if self._claves is not None:
                 raise ErrorEstado("El nodo ya está desbloqueado.")
-            claves = abrir_almacen(self.ruta_clave, contrasena)      # ErrorClave sube con su mensaje
+        _, espera = self.intentos_desbloqueo()
+        if espera:
+            self.pausa(espera)                       # fuera del candado: el nodo sigue atendiendo a la red
+        try:
+            claves = abrir_almacen(self.ruta_clave, contrasena)      # scrypt, fuera del candado
+        except ErrorClave:
+            with self.lock:
+                self._fallos_desbloqueo += 1
+                self._fallos_desbloqueo_total += 1
+            raise
+        with self.lock:
+            if self._claves is not None:
+                raise ErrorEstado("El nodo ya está desbloqueado.")
             if claves.publica != self.genesis["cuentas"][self.id]["clave_publica"]:
                 raise ErrorClave("La clave del almacén no coincide con la de este nodo en el génesis.")
             self._claves = claves
+            self._fallos_desbloqueo = 0
         self.evento("clave", f"Nodo {self.id} desbloqueado.")
         self._emitir([("desbloqueado", None)])
+
+    def clave_en_claro_en_disco(self) -> bool:
+        """Comprueba el archivo del almacén: exige que tenga sólo los campos cifrados del formato y, con el nodo
+        desbloqueado, busca la clave privada real (hexadecimal y base64) en su texto. False = no hay clave en claro."""
+        try:
+            with open(self.ruta_clave, "r", encoding="utf-8") as f:
+                texto = f.read()
+            doc = json.loads(texto)
+        except (OSError, ValueError, TypeError, RecursionError):
+            return False
+        if not isinstance(doc, dict) or set(doc) != {"formato", "version", "id", "clave_publica", "kdf", "cifrado"}:
+            return True
+        claves = self._claves
+        if claves is not None:
+            crudo = claves.bytes_privados()
+            if crudo.hex() in texto or base64.b64encode(crudo).decode() in texto:
+                return True
+        return False
 
     def bloquear(self) -> None:
         self.detener_minado()
@@ -378,10 +443,14 @@ class NodoCompleto:
     def recibir_bloque(self, bloque, de: str = "") -> tuple[str, str]:
         origen = f" de {de}" if de else ""
         try:
-            return self._recibir_bloque(bloque, origen)
+            resultado = self._recibir_bloque(bloque, origen)
         except Exception as exc:  # nunca debe escapar una excepción por datos externos
             self.evento("rechazo", f"Bloque{origen} rechazado por error de formato ({type(exc).__name__}).")
-            return "rechazado", f"bloque con formato inválido ({type(exc).__name__})"
+            resultado = "rechazado", f"bloque con formato inválido ({type(exc).__name__})"
+        if resultado[0] == "rechazado":
+            with self.lock:
+                self._bloques_rechazados += 1
+        return resultado
 
     def _recibir_bloque(self, bloque, origen: str) -> tuple[str, str]:
         if not isinstance(bloque, dict) or not isinstance(bloque.get("hash"), str):
@@ -433,12 +502,16 @@ class NodoCompleto:
     def recibir_cadena(self, cadena, de: str = "") -> tuple[bool, str]:
         origen = f" de {de}" if de else ""
         try:
-            return self._recibir_cadena(cadena, origen)
+            resultado = self._recibir_cadena(cadena, origen, de)
         except Exception as exc:
             self.evento("rechazo", f"Cadena{origen} rechazada por error ({type(exc).__name__}).")
-            return False, f"cadena con formato inválido ({type(exc).__name__})"
+            resultado = False, f"cadena con formato inválido ({type(exc).__name__})"
+        if not resultado[0] and resultado[1] != "ya tengo esa cadena":
+            with self.lock:
+                self._cadenas_rechazadas += 1
+        return resultado
 
-    def _recibir_cadena(self, cadena, origen: str) -> tuple[bool, str]:
+    def _recibir_cadena(self, cadena, origen: str, de: str = "") -> tuple[bool, str]:
         try:
             copia = _json_puro(cadena)
         except (TypeError, ValueError):
@@ -464,6 +537,7 @@ class NodoCompleto:
                 if copia[-1]["hash"] > self.punta:
                     return False, "mismo trabajo y la punta de la cadena recibida tiene un hash mayor"
             vieja = self.cadena
+            altura_antes, punta_antes = self.altura, self.punta
             nuevos = {b["hash"] for b in copia}
             huerfanas = [tx for b in vieja[1:] if b["hash"] not in nuevos for tx in b["transacciones"]]
             self.cadena, self.estado = copia, estado
@@ -478,6 +552,10 @@ class NodoCompleto:
             self.revision += 1
             self._despertar.set()
             descartados = len([b for b in vieja[1:] if b["hash"] not in nuevos])
+            self._reorgs.append({"t": _iso(time.time()), "de": de or "desconocido", "altura_antes": altura_antes,
+                                 "altura_despues": self.altura, "punta_antes": punta_antes,
+                                 "punta_despues": self.punta, "bloques_descartados": descartados,
+                                 "tx_devueltas": recuperadas})
             self.evento("bloque", f"Cadena{origen} adoptada: altura {self.altura}, trabajo {nuevo_trabajo}"
                                   f"{f', {descartados} bloque(s) propios descartados' if descartados else ''}"
                                   f"{f', {recuperadas} transacción(es) vuelven a pendientes' if recuperadas else ''}.")
@@ -495,7 +573,20 @@ class NodoCompleto:
     def minando(self) -> bool:
         return self._minando
 
-    def iniciar_minado(self, dificultad: int, continuo: bool = False) -> str:
+    @property
+    def dificultad_red(self) -> int | None:
+        """Dificultad fija de la red (AUD-004) si el génesis la define; None si cada minero la elige."""
+        return self.genesis["parametros"].get("dificultad")
+
+    def iniciar_minado(self, dificultad: int | None = None, continuo: bool = False) -> str:
+        red = self.dificultad_red
+        if red is not None:
+            if dificultad is not None and dificultad != red:
+                raise ErrorEntrada(f"La dificultad de esta red está fijada en el génesis ({red}); "
+                                   f"no se puede minar con {dificultad}.")
+            dificultad = red
+        elif dificultad is None:
+            raise ErrorEntrada("Indica la dificultad: el génesis de esta red no la fija.")
         if not es_entero(dificultad) or not DIF_MIN <= dificultad <= DIF_MAX:
             raise ErrorEntrada(f"La dificultad debe ser un entero entre {DIF_MIN} y {DIF_MAX}.")
         with self.lock:
@@ -643,6 +734,18 @@ class NodoCompleto:
                                "requeridas": conf, "confirmado": confirmaciones >= conf})
             return salida
 
+    def _persistencia(self) -> dict:
+        """Copia local en disco: archivo, tamaño real, última escritura (la propia o, si el nodo aún no escribió, la
+        fecha de modificación del archivo) y el último error de escritura (None si la última escritura salió bien)."""
+        try:
+            info = os.stat(self.ruta_cadena)
+            tam, modificado = info.st_size, info.st_mtime
+        except OSError:
+            tam, modificado = None, None
+        ultima = self._pers["ultima_escritura"] or modificado
+        return {"archivo_cadena": self.ruta_cadena, "bytes": tam, "ultima_escritura": _iso(ultima),
+                "error": self._pers["error"]}
+
     def publico(self) -> dict:
         """Vista para la UI. Nunca incluye claves privadas ni contraseñas."""
         with self.lock:
@@ -662,7 +765,12 @@ class NodoCompleto:
                         "dificultad": b.get("dificultad"), "transacciones": len(b["transacciones"]),
                         "timestamp": b["timestamp"], "confirmaciones": self.altura - b["numero"]}
                        for b in self.cadena[-ULTIMOS_BLOQUES_UI:]][::-1]
+            consenso = {"regla": REGLA_CONSENSO, "reorganizaciones": list(self._reorgs),
+                        "bloques_rechazados": self._bloques_rechazados,
+                        "cadenas_rechazadas": self._cadenas_rechazadas}
             return {"id": self.id, "altura": self.altura, "punta": self.punta, "trabajo": self._trabajo,
+                    "dificultad_red": self.dificultad_red, "consenso": consenso,
+                    "persistencia": self._persistencia(),
                     "revision": self.revision, "hash_genesis": self.hash_genesis, "desbloqueado": self.desbloqueado,
                     "minando": self._minando, "estadisticas": dict(self._stats), "confirmaciones": conf,
                     "recompensa": est.params["recompensa"], "max_tx_por_bloque": MAX_TX_POR_BLOQUE,
