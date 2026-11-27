@@ -80,12 +80,12 @@ def test_modo_simulador_responde_409():
                          ("post", "/api/sellalo/ataques"), ("get", "/api/sellalo/certificado/" + "0" * 64)):
         r = getattr(c, metodo)(ruta)
         assert r.status_code == 409 and "--modo nodo" in r.get_json()["error"]
-    assert b"Simulador de blockchain" in c.get("/").data
+    assert b"Simulador Proof of Work" in c.get("/").data
 
 
 def test_paginas_en_modo_nodo(nodo):
     assert b'id="app"' in nodo.get("/").data and b"sellalo.js" in nodo.get("/").data
-    assert b"Simulador de blockchain" in nodo.get("/simulador").data
+    assert b"Simulador Proof of Work" in nodo.get("/simulador").data
     assert nodo.get("/static/sellalo.js").status_code == 200
     assert nodo.get("/api/pow/estado").status_code == 200       # el simulador sigue disponible
 

@@ -18,7 +18,7 @@ modulo_red.derivar_claves = lru_cache(maxsize=None)(derivar_claves)
 
 def nueva_red(consenso: str, n: int = 10, semilla: int = 7, saldo: int = 100, recompensa: int | None = None) -> Red:
     if recompensa is None:
-        recompensa = 50 if consenso == "pow" else 10
+        recompensa = 50
     return Red(consenso, n, semilla, saldo, recompensa, reproducible=True, contrasena=CONTRASENA_PRUEBA)
 
 
@@ -36,11 +36,6 @@ def todos_sincronizados(red: Red) -> bool:
 @pytest.fixture
 def red_pow():
     return nueva_red("pow")
-
-
-@pytest.fixture
-def red_pos():
-    return nueva_red("pos")
 
 
 @pytest.fixture

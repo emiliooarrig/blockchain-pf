@@ -8,16 +8,10 @@ from models.validacion import validar_cadena
 from tests.conftest import minar, nueva_red
 
 
-@pytest.fixture(params=["pow", "pos"])
-def red_con_bloques(request):
-    red = nueva_red(request.param)
-    if red.consenso == "pow":
-        minar(red, 4)
-    else:
-        for _ in range(4):
-            if not red.pendientes:
-                red.transaccion_aleatoria()
-            red.motor.ronda_automatica()
+@pytest.fixture
+def red_con_bloques():
+    red = nueva_red("pow")
+    minar(red, 4)
     assert red.referencia().altura == 4
     return red
 

@@ -9,15 +9,12 @@ from app import create_app
 
 RUTAS_POST = [
     "/api/{v}/simulacion", "/api/{v}/transacciones", "/api/{v}/transacciones/aleatoria", "/api/{v}/ataques",
-    "/api/{v}/nodos/N00/deshonesto", "/api/{v}/minar", "/api/{v}/minar/cancelar", "/api/{v}/pos/config",
-    "/api/{v}/pos/ronda", "/api/{v}/pos/apostar", "/api/{v}/pos/apuestas-automaticas", "/api/{v}/pos/sortear",
-    "/api/{v}/pos/candidato", "/api/{v}/pos/votar", "/api/{v}/pos/votacion-automatica", "/api/{v}/pos/cerrar",
-    "/api/{v}/pos/ronda-automatica", "/api/{v}/pos/cancelar",
+    "/api/{v}/minar", "/api/{v}/minar/cancelar",
 ]
 CUERPOS = [
     {"json": None}, {"json": []}, {"json": "texto"}, {"json": 42}, {"json": {}},
     {"json": {"n": {"a": 1}, "monto": [1], "nodo": 5, "emisor": None, "dificultad": "∞", "tipo": "x" * 500,
-              "a_favor": "quizás", "deshonesto": 3, "regla": 1, "cantidad": -1}},
+              "cantidad": -1}},
     {"data": "{esto no es json", "content_type": "application/json"},
     {"data": "hola", "content_type": "text/plain"},
     {"data": "n=abc&monto=&nodo=N00", "content_type": "application/x-www-form-urlencoded"},
@@ -35,14 +32,13 @@ def _esperar_minado(cliente, version="pow", limite=5.0):
 
 def test_pagina_principal(cliente):
     resp = cliente.get("/")
-    assert resp.status_code == 200 and b"Simulador de blockchain" in resp.data
+    assert resp.status_code == 200 and b"Simulador Proof of Work" in resp.data and b"Proof of Stake" not in resp.data
 
 
-def test_estado_de_ambas_versiones(cliente):
-    for v in ("pow", "pos"):
-        datos = cliente.get(f"/api/{v}/estado").get_json()
-        assert datos["ok"] and datos["consenso"] == v and len(datos["nodos"]) == 10
-        assert all(n["sincronizado"] for n in datos["nodos"])
+def test_estado_de_la_simulacion(cliente):
+    datos = cliente.get("/api/pow/estado").get_json()
+    assert datos["ok"] and datos["consenso"] == "pow" and len(datos["nodos"]) == 10
+    assert all(n["sincronizado"] for n in datos["nodos"])
 
 
 def test_reiniciar_la_simulacion(cliente):
@@ -59,23 +55,10 @@ def test_reiniciar_la_simulacion(cliente):
 
 
 def test_reiniciar_con_datos_invalidos_conserva_la_simulacion(cliente):
-    cliente.post("/api/pos/transacciones", json={"emisor": "N00", "receptor": "N01", "monto": 5})
-    resp = cliente.post("/api/pos/simulacion", json={"n": 30})
+    cliente.post("/api/pow/transacciones", json={"emisor": "N00", "receptor": "N01", "monto": 5})
+    resp = cliente.post("/api/pow/simulacion", json={"n": 30})
     assert resp.status_code == 400
-    assert len(cliente.get("/api/pos/estado").get_json()["pendientes"]) == 1
-
-
-def test_recargar_a_mitad_de_una_ronda(cliente):
-    cliente.post("/api/pos/transacciones", json={"emisor": "N00", "receptor": "N01", "monto": 5})
-    for ruta in ("/api/pos/pos/ronda", "/api/pos/pos/apuestas-automaticas", "/api/pos/pos/sortear",
-                 "/api/pos/pos/candidato"):
-        assert cliente.post(ruta).status_code == 200, ruta
-    antes = cliente.get("/api/pos/estado").get_json()["motor"]["ronda"]
-    assert cliente.get("/").status_code == 200                       # «recargar la página»
-    despues = cliente.get("/api/pos/estado").get_json()["motor"]["ronda"]
-    assert despues["estado"] == "VOTACION" and despues == antes
-    assert cliente.post("/api/pos/pos/ronda-automatica").status_code == 200
-    assert cliente.get("/api/pos/estado").get_json()["altura"] == 1
+    assert len(cliente.get("/api/pow/estado").get_json()["pendientes"]) == 1
 
 
 def test_recargar_a_mitad_del_minado(cliente):
@@ -107,30 +90,6 @@ def test_dos_pestanas_minando_a_la_vez():
     app.config["SIMULADOR"].red("pow").motor.detener()
 
 
-def test_dos_pestanas_votando_a_la_vez():
-    app = create_app(reproducible=True)
-    c = app.test_client()
-    c.post("/api/pos/transacciones", json={"emisor": "N00", "receptor": "N01", "monto": 5})
-    for ruta in ("ronda", "apuestas-automaticas", "sortear", "candidato"):
-        c.post(f"/api/pos/pos/{ruta}")
-    resultados, barrera = [], threading.Barrier(4)
-
-    def pestana(a_favor):
-        cl = app.test_client()
-        barrera.wait()
-        resultados.append(cl.post("/api/pos/pos/votar", json={"nodo": "N02", "a_favor": a_favor}).get_json())
-
-    hilos = [threading.Thread(target=pestana, args=(i % 2 == 0,)) for i in range(4)]
-    for h in hilos:
-        h.start()
-    for h in hilos:
-        h.join()
-    assert sum(r["ok"] for r in resultados) == 1
-    assert all("dos veces" in r["error"] for r in resultados if not r["ok"])
-    ronda = c.get("/api/pos/estado").get_json()["motor"]["ronda"]
-    assert ronda["votacion"]["emitidos"] == 1
-
-
 def test_transacciones_concurrentes_no_gastan_de_mas():
     app = create_app(reproducible=True)
     resultados, barrera = [], threading.Barrier(8)
@@ -149,9 +108,9 @@ def test_transacciones_concurrentes_no_gastan_de_mas():
     assert resultados.count(200) == 3 and resultados.count(400) == 5    # 3 × 30 ≤ 100 < 4 × 30
 
 
-@pytest.mark.parametrize("version", ["pow", "pos"])
 @pytest.mark.parametrize("ruta", RUTAS_POST)
-def test_rutas_con_datos_mal_formados_nunca_dan_500(cliente, version, ruta, ):
+def test_rutas_con_datos_mal_formados_nunca_dan_500(cliente, ruta):
+    version = "pow"
     for cuerpo in CUERPOS:
         resp = cliente.post(ruta.format(v=version), **cuerpo)
         assert resp.status_code < 500, (ruta, cuerpo, resp.get_json())
@@ -176,7 +135,7 @@ def test_rutas_inexistentes_y_metodos(cliente):
     assert cliente.get("/api/pow/minar").status_code == 405
     assert cliente.delete("/api/pow/estado").status_code == 405
     assert cliente.get("/no-existe").status_code == 404
-    assert cliente.post("/api/pow/pos/ronda").get_json()["error"].startswith("Esta acción sólo existe")
+    assert cliente.post("/api/pow/pos/ronda").status_code == 404
 
 
 def test_peticion_demasiado_grande(cliente):

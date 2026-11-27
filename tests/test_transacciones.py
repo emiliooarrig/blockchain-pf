@@ -89,12 +89,6 @@ def test_pendientes_vacia_al_minar(red_pow):
     assert not red_pow.motor.minando
 
 
-def test_pendientes_vacia_al_proponer(red_pos):
-    with pytest.raises(ErrorEstado, match="No hay transacciones pendientes"):
-        red_pos.motor.iniciar_ronda()
-    assert red_pos.motor.ronda is None
-
-
 def test_transacciones_minadas_salen_de_pendientes_y_actualizan_saldos(red_pow):
     red_pow.crear_transaccion("N00", "N01", 30)
     minar(red_pow, 1)

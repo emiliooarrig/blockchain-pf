@@ -151,21 +151,6 @@ def test_robar_el_bloque_cambiando_el_proponente_exige_su_clave(cadena_pow):
         _validar(cadena)                                       # ...pero el bloque siguiente ya no enlaza
 
 
-def test_pos_lleva_raiz_de_merkle_y_se_valida():
-    red = nueva_red("pos")
-    for _ in range(2):
-        if not red.pendientes:
-            red.transaccion_aleatoria()
-        red.motor.ronda_automatica()
-    cadena = copiar(red.referencia().cadena)
-    assert all(b["raiz_merkle"] == merkle.raiz_transacciones(b["transacciones"]) for b in cadena)
-    assert all("firma_minero" not in b for b in cadena)
-    _validar(cadena)
-    cadena[1]["transacciones"][0]["monto"] += 1
-    with pytest.raises(ErrorValidacion, match="raíz de Merkle no coincide"):
-        _validar(cadena)
-
-
 # ---------------------------------------------------------------- simulador con contraseña
 def _publicas(red):
     return [n.claves.publica for n in red.nodos]
@@ -184,7 +169,6 @@ def test_otra_contrasena_o_semilla_cambia_las_claves():
     a = Red("pow", 10, 5, 100, 50, reproducible=True, contrasena=CONTRASENA_PRUEBA)
     assert _publicas(a) != _publicas(Red("pow", 10, 5, 100, 50, reproducible=True, contrasena="otra-contrasena-123"))
     assert _publicas(a) != _publicas(Red("pow", 10, 6, 100, 50, reproducible=True, contrasena=CONTRASENA_PRUEBA))
-    assert _publicas(a) != _publicas(Red("pos", 10, 5, 100, 10, reproducible=True, contrasena=CONTRASENA_PRUEBA))
 
 
 def test_sin_contrasena_las_claves_son_aleatorias():
@@ -236,4 +220,4 @@ def test_contrasena_invalida_por_la_api(cliente, valor, fragmento):
 
 
 def test_contrasena_vacia_equivale_a_no_enviarla(cliente):
-    assert cliente.post("/api/pos/simulacion", json={"n": 10, "contrasena": ""}).status_code == 200
+    assert cliente.post("/api/pow/simulacion", json={"n": 10, "contrasena": ""}).status_code == 200

@@ -27,9 +27,9 @@ def test_n_fuera_de_rango_en_el_nucleo(n):
 
 @pytest.mark.parametrize("n", [10, 20])
 def test_n_en_los_limites_se_acepta(cliente, n):
-    resp = cliente.post("/api/pos/simulacion", json={"n": n})
+    resp = cliente.post("/api/pow/simulacion", json={"n": n})
     assert resp.status_code == 200
-    assert len(cliente.get("/api/pos/estado").get_json()["nodos"]) == n
+    assert len(cliente.get("/api/pow/estado").get_json()["nodos"]) == n
 
 
 @pytest.mark.parametrize("monto,fragmento", [
@@ -56,7 +56,6 @@ def test_nodos_inexistentes(cliente, emisor, receptor):
 
 def test_nodo_inexistente_en_otras_rutas(cliente):
     assert "no existe" in _error(cliente.get("/api/pow/nodos/N77/recompensas"))
-    assert "no existe" in _error(cliente.post("/api/pos/nodos/N77/deshonesto", json={"deshonesto": True}))
 
 
 @pytest.mark.parametrize("dificultad", [0, 7, -1, "x", "", 3.5])

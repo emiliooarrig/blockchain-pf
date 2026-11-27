@@ -182,7 +182,7 @@ def test_aud_036_aleatoria_informa_las_creadas_antes_del_limite(sim, monkeypatch
 
 
 # ---------------------------------------------------------------- AUD-037
-@pytest.mark.parametrize("ruta", ["/api/pos/pos/ronda", "/api/pos/pos/sortear", "/api/pow/minar/cancelar"])
+@pytest.mark.parametrize("ruta", ["/api/pow/minar/cancelar"])
 def test_aud_037_json_con_cuerpo_vacio_en_rutas_sin_parametros(sim, ruta):
     r = sim.post(ruta, data=b"", content_type="application/json")
     assert r.status_code != 400, r.get_json()
