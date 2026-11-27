@@ -43,6 +43,10 @@ def hash_bloque(b):
   Se verifica con `estado.claves[proponente]`. Se firma **después** de encontrar el nonce (por eso no entra al hash).
   `verificar_pow(estado, bloque)` recibe ahora el estado.
 - `parametros` del génesis acepta además `"red": "simulador" | "sellalo"` y `"nombre": str` (opcionales en el simulador).
+- **Dificultad (AUD-004 y C9).** La dificultad ya no la elige el minero: si `parametros.dificultad` existe, el bloque `h`
+  debe declarar exactamente la **dificultad vigente** (`Estado.dificultad_vigente`): la del génesis, o la que fijó el
+  último ajuste co-firmado aplicado en un bloque anterior (ver C9). Sin `parametros.dificultad` (simulador) cada bloque
+  declara la suya entre `DIF_MIN` y `DIF_MAX`. El trabajo acumulado sigue siendo `Σ 16^dificultad`.
 
 ## C2 · Merkle (`models/merkle.py`, YA implementado en fase 0)
 
@@ -229,6 +233,7 @@ class ServidorP2P:
   "sello": { "...transacción sello completa..." },
   "prueba_merkle": {"hoja": "<hex>", "indice": 0, "camino": [{"lado": "der", "hash": "<hex>"}]},
   "numero_bloque": 3,
+  "ajustes": [ {"bloque": 2, "tx": { "...ajuste_dificultad completo..." }, "prueba_merkle": {"hoja": "<hex>", "indice": 1, "camino": []}} ],
   "genesis": { "...bloque génesis completo..." },
   "encabezados": [ "...encabezados 1..punta (bloques sin 'transacciones')..." ]
 }
@@ -240,6 +245,10 @@ class ServidorP2P:
   `firma_minero` con la clave del génesis), la multifirma del sello con las claves del génesis, `hoja_tx(sello)` → camino →
   `raiz_merkle` del bloque indicado, y opcionalmente `SHA-256(archivo) == doc_hash`.
   Imprime fecha del bloque, autores, laboratorio, bloque y confirmaciones; o el motivo exacto del rechazo. Código de salida 0/1.
+- `ajustes` (opcional; ausente = `[]`) lista cada ajuste de dificultad de la cadena con su número de bloque y su prueba de
+  Merkle. El verificador recalcula la dificultad vigente por altura (la del génesis, y desde el bloque siguiente a cada
+  ajuste probado: firmas válidas de laboratorios del génesis, más de la mitad, inclusión en la raíz del bloque) y exige que
+  cada encabezado la use: un encabezado que cambia de dificultad sin un ajuste probado hace el certificado **no válido**.
 
 ## C7 · Aplicación en modo nodo y rutas HTTP de la red Sellalo (A4 implementa, A6 consume)
 
@@ -267,6 +276,9 @@ Respuesta: `{ok: true, mensaje?, ...}` o `{ok: false, error}` con 400/409; nunca
 | POST | `/pares/<id>/desconectar` | — | |
 | POST | `/sellos` | multipart `archivo` o `doc_hash`, `titulo`, `investigador`, `autores` (lista o CSV; debe incluir al propio nodo), `umbral` | `{sello: {id, doc_hash, estado: "en_firma"\|"pendiente", firmas, umbral}}` — el nodo firma de inmediato; si `umbral == 1` pasa directo a pendientes y se difunde como `TX`; si no, se difunde `SELLO_PROPUESTO` |
 | POST | `/sellos/<id>/firmar` | — | agrega mi firma, difunde `SELLO_FIRMA`; al llegar al umbral el nodo que lo completa lo agrega a pendientes y lo difunde como `TX` |
+| GET | `/dificultad` | — | ver C9 |
+| POST | `/dificultad/proponer` | `{dificultad}` | `{ajuste: {id, dificultad, estado: "en_firma"\|"pendiente", firmas, umbral}}` |
+| POST | `/dificultad/<id>/firmar` | — | agrega mi firma; al llegar a la mayoría pasa a pendientes |
 | POST | `/minar` | `{dificultad, continuo}` | |
 | POST | `/minar/detener` | — | |
 | POST | `/transferencias` | `{receptor, monto}` | `{id}` |
@@ -296,8 +308,8 @@ Contrato completo y auditoría en [`docs/RUBRICA_EN_INTERFAZ.md`](../RUBRICA_EN_
 
 Precisiones de la implementación (sin cambiar los campos del contrato):
 
-- `NodoCompleto.iniciar_minado(dificultad=None, continuo=False)`: si el génesis fija `parametros.dificultad` se usa esa;
-  otra distinta es `ErrorEntrada`. `POST /minar` sin `dificultad` funciona con ese génesis.
+- `NodoCompleto.iniciar_minado(dificultad=None, continuo=False)`: si el génesis fija `parametros.dificultad` se usa la
+  vigente (la del génesis o la del último ajuste aplicado, C9); otra distinta es `ErrorEntrada`. `POST /minar` sin `dificultad` funciona con ese génesis.
 - `desbloquear`: contador de contraseñas incorrectas seguidas y espera 0, 1, 2, 4... s (máx. 30) antes del siguiente
   intento, fuera del candado del nodo y del contexto. `/clave` la expone.
 - `pasos[].ok` es `true`/`false` si el paso se evaluó y `null` (con `evaluado: false`) si no se llegó a él (falló uno
@@ -313,3 +325,54 @@ Precisiones de la implementación (sin cambiar los campos del contrato):
 - Estados de un criterio: `demostrado` = todas sus evidencias en ok; `parcial` = alguna; `pendiente` = ninguna
   (condiciones de cada una en la docstring de `models.rubrica.criterios`).
 - `docs/auditoria/estado.json` lo genera `scripts/estado_auditoria.py` (HALLAZGOS.md + TRIAJE.md + `git log`).
+
+---
+
+## C9 · Ajuste de dificultad co-firmado
+
+La dificultad de la red nació fija en el génesis (AUD-004): ya no la elige el minero. Para poder volver más lento (o más
+rápido) el minado **sin reiniciar la red ni perder la cadena**, la dificultad vigente puede cambiar únicamente por
+**acuerdo de la mayoría de los laboratorios registrado en la cadena**. Sólo existe en redes cuyo génesis fija
+`parametros.dificultad`; en el simulador no hay ajustes.
+
+### Transacción `ajuste_dificultad` (no mueve saldos)
+
+```json
+{"tipo": "ajuste_dificultad", "dificultad": 5, "proponente": "LAB-A", "timestamp": 1767225600.0,
+ "firmas": {"LAB-A": "<hex 128>", "LAB-B": "<hex 128>"}}
+```
+
+- Mensaje firmado = `models.cripto.canonico` de todos los campos salvo `firmas`; id = SHA-256 de ese mensaje (como en C3).
+- Reglas estrictas dentro de un bloque (`models/ajuste_dificultad.py::revisar_ajuste`): campos exactos;
+  `DIF_MIN ≤ dificultad ≤ DIF_MAX` (enteros, no booleanos); distinta de la vigente; `proponente` está en el génesis y
+  firmó; toda firma presente es válida y de un laboratorio del génesis; firmas válidas **> n/2** (n = laboratorios del
+  génesis; con 3 laboratorios bastan 2); a lo sumo un ajuste por bloque; su id no está en `estado.tx_ids`.
+- **Vigencia.** `Estado.dificultad_vigente` (inicial = parámetro del génesis o `None`) y `Estado.ajustes`
+  (`{numero, dificultad_anterior, dificultad, proponente, firmantes, id}`). El bloque `h` que contiene el ajuste se valida
+  con la dificultad anterior; la nueva rige **desde el bloque `h+1`**. Si una reorganización descarta el bloque del ajuste,
+  la vigente vuelve a la anterior (el estado se recalcula desde el génesis) y el ajuste regresa a pendientes si sigue
+  siendo válido. Un ajuste pendiente que queda obsoleto (ya aplicado o igual a la vigente) se descarta.
+- Nodo: `iniciar_minado` y la plantilla del minado usan la vigente (el minado continuo la relee en cada bloque);
+  `publico()` agrega `dificultad_red` (= vigente), `dificultad_genesis` y `ajustes`.
+
+### Co-firma por P2P (`models/coordinador_ajustes.py`)
+
+Mismo patrón que los sellos: `AJUSTE_PROPUESTO {ajuste}` (lo difunde el proponente, ya firmado) y
+`AJUSTE_FIRMA {id_ajuste, lab, firma}`. Quien completa la mayoría lo agrega a sus pendientes (se difunde como `TX`).
+Persistencia atómica en `<datos>/ajustes_en_firma.json`; caducan a las 24 h; una propuesta nueva reemplaza a la
+pendiente del mismo proponente; datos inválidos quedan en la bitácora (tipo `dificultad`) y nunca lanzan al transporte.
+
+### API (`/api/sellalo`; las escrituras pasan por la defensa CSRF/Host de siempre)
+
+| Método | Ruta | Respuesta |
+|---|---|---|
+| GET | `/dificultad` | `{vigente, genesis, minimo, maximo, umbral, laboratorios, ajustes, en_firma, solicitudes}`; `en_firma[]` = `{id, dificultad, proponente, firmas: [ids], umbral, faltan, creado, firmado_por_mi}`; `solicitudes` = las que aún no firmé. También viaja en `GET /estado` como `dificultad` |
+| POST | `/dificultad/proponer` `{dificultad}` | 400 si no es un entero entre `minimo` y `maximo`; 409 si el nodo está bloqueado, la red no fija la dificultad o ya es la vigente |
+| POST | `/dificultad/<id>/firmar` | 400 si el id no es un hash; 409 si el nodo está bloqueado, ya firmó o la propuesta no existe, caducó o quedó obsoleta |
+
+### Verificación
+
+`verificacion_detallada` evalúa cada ajuste (firmas, mayoría, rango y distinta de la vigente) y exige a cada bloque la
+dificultad vigente calculada en la propia recorrida (`dificultad_final`, `ajustes`). La rúbrica R4 muestra la evidencia
+informativa «ajustes de dificultad co-firmados aplicados: n» (no se exige haber ajustado). El certificado y el
+verificador independiente: ver C6.

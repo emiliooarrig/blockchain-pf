@@ -107,7 +107,7 @@ Cada nodo tiene cuatro vistas, en las pestañas del encabezado (**Nodo · Rúbri
 
 | Vista | Qué hay |
 |---|---|
-| **Nodo** (`/`) | Barra de 5 grupos: **Identidad y red** (desbloqueo, protección de la clave, pares, consistencia, consenso) · **Sellos** (sellar un documento, co-firmas, prioridad y certificados) · **Minado y cadena** · **Verificación** (auditar tu copia y simular alteraciones) · **Cuentas** (saldos y bitácora) |
+| **Nodo** (`/`) | Barra de 5 grupos: **Identidad y red** (desbloqueo, protección de la clave, pares, consistencia, consenso) · **Sellos** (sellar un documento, co-firmas, prioridad y certificados) · **Minado y cadena** (con el panel **Dificultad de la red**) · **Verificación** (auditar tu copia y simular alteraciones) · **Cuentas** (saldos y bitácora) |
 | **Rúbrica** (`/rubrica`) | Tablero en vivo de cada criterio de la rúbrica (R1–R8 y punto excepcional) con su evidencia, y el recorrido del caso de uso |
 | **Ataques** (`/ataques`) | Laboratorio de ataques: fabrica una manipulación sobre una copia (sello alterado, firma falsa, raíz de Merkle falsa, multifirma incompleta…) y muestra cómo la rechazan este nodo o sus pares. Requiere arrancar con `--laboratorio-ataques` (los scripts ya lo hacen) |
 | **Auditoría** (`/auditoria`) | Hallazgos de la auditoría del código con IA, su decisión, el commit que los corrige y la prueba |
@@ -121,6 +121,21 @@ Cada nodo tiene cuatro vistas, en las pestañas del encabezado (**Nodo · Rúbri
 5. **Prioridad y certificado**: sube el documento para ver quién lo selló primero y descarga el certificado.
 6. **Verificación → Simular alteración** y la vista **Ataques**: comprueba que los datos alterados se rechazan.
 7. La vista **Rúbrica** se va marcando sola a medida que demuestras cada criterio.
+
+### Cambiar la dificultad de la red
+
+La dificultad (ceros hexadecimales iniciales del hash) la fija el génesis, pero se puede cambiar **en la red viva y
+conservando la cadena**, siempre por acuerdo de la mayoría de los laboratorios:
+
+1. En un nodo, **Minado y cadena → Dificultad de la red**: elige la nueva dificultad (1 a 6) y pulsa **Proponer ajuste**.
+   El panel muestra el tiempo esperado por bloque (con la velocidad de hashes de tu PC si ya minaste).
+2. En otro nodo aparece la propuesta en **Propuestas en firma**: pulsa **Firmar**. Con la mayoría (2 de 3) el ajuste pasa
+   a pendientes en todos los nodos.
+3. Cualquiera mina un bloque: el ajuste queda registrado en la cadena y **se aplica desde el bloque siguiente**. El
+   historial de ajustes y el detalle del bloque lo muestran, y los certificados nuevos lo incluyen para que el verificador
+   independiente lo compruebe.
+
+Cada nivel multiplica el trabajo por 16: la dificultad 6 son ≈ 16,7 millones de hashes por bloque (16^6).
 
 ## Verificar un certificado sin conexión
 
