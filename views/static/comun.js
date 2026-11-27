@@ -86,6 +86,11 @@
     const n = e.nodo;
     const poner = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
     poner("enc-lab", n.id);
+    if (e.red) {
+      poner("enc-red", e.red.nombre || "Red Sellalo");
+      const g = document.getElementById("enc-genesis");
+      if (g && e.red.hash_genesis) { g.textContent = `${e.red.hash_genesis.slice(0, 12)}…`; g.setAttribute("title", e.red.hash_genesis); }
+    }
     const ins = $("#enc-estado");
     if (ins) {
       ins.classList.toggle("is-open", n.desbloqueado);
