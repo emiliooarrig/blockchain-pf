@@ -7,6 +7,7 @@ import copy
 import hashlib
 import ipaddress
 import json
+import os
 import re
 import socket
 import threading
@@ -15,16 +16,17 @@ import time
 from flask import Blueprint, Response, current_app, jsonify, render_template, request
 
 from controllers.entradas import booleano, datos, entero
-from models import ataques_sellalo
+from models import ataques_sellalo, rubrica
 from models.bloque import MONTO_MAX, nueva_transaccion
 from models.certificado import generar_certificado, resumen_certificado
 from models.coordinador_sellos import CoordinadorSellos
 from models.cripto import es_hex
 from models.errores import ErrorEntrada, ErrorEstado
-from models.keystore import CONTRASENA_MAX
+from models.keystore import CONTRASENA_MAX, metadatos_publicos
 from models.nodo_completo import NodoCompleto, conectar_nodo_y_servidor
 from models.pow import DIF_MAX, DIF_MIN
 from models.red_p2p import ServidorP2P
+from models.verificacion_detallada import (TIPOS_ALTERACION, alterar_copia, verificar_cadena_detallada)
 from verificar_certificado import verificar
 
 sellalo = Blueprint("sellalo", __name__, url_prefix="/api/sellalo")
@@ -37,6 +39,8 @@ MAX_CERTIFICADO = 16 * 1024 * 1024        # certificado subido a verificar (≈ 
 MAX_ENCABEZADOS = 100_000
 MAX_CUERPO_SIN_SUBIDA = 1024 * 1024       # rutas que no reciben documentos ni certificados
 RUTAS_CON_SUBIDA = ("/api/sellalo/sellos", "/api/sellalo/prioridad", "/api/sellalo/certificado/verificar")
+CONTADORES_SESION = ("certificados_emitidos", "certificados_validos", "certificados_invalidos", "prioridad_consultas",
+                     "ataques_rechazados", "verificaciones", "simulaciones")
 RE_HOST = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
 
 
@@ -54,10 +58,23 @@ class ContextoNodo:
         self.servidor: ServidorP2P | None = None
         self._callback = None
         self.lock = threading.RLock()
+        self._lock_sesion = threading.Lock()
+        self.sesion = {c: 0 for c in CONTADORES_SESION}      # contadores de esta ejecución (/estado, rúbrica)
+        self.tipos_simulados: set[str] = set()               # alteraciones simuladas Y detectadas
+        self.tipos_ataques_rechazados: set[str] = set()
+
+    def contar(self, nombre: str) -> None:
+        with self._lock_sesion:
+            self.sesion[nombre] += 1
+
+    def sesion_publica(self) -> dict:
+        with self._lock_sesion:
+            return dict(self.sesion)
 
     def desbloquear(self, contrasena: str) -> None:
+        # La espera creciente y scrypt corren aquí, fuera de `self.lock`: un intento lento no frena /bloquear.
+        self.nodo.desbloquear(contrasena)            # ErrorClave (400) o ErrorEstado (409)
         with self.lock:
-            self.nodo.desbloquear(contrasena)        # ErrorClave (400) o ErrorEstado (409)
             try:
                 servidor = ServidorP2P(self.nodo, host=self.host_p2p, puerto=self.puerto_p2p, **self.opciones_p2p)
                 servidor.iniciar()
@@ -250,18 +267,39 @@ def _calcular_direcciones_locales() -> list[str]:
 
 
 # ---------------------------------------------------------------- estado y claves
+def _consistencia(publico: dict, pares: list) -> dict:
+    """Nodos (yo y mis pares conectados) y cuántos tienen exactamente mi punta."""
+    return {"nodos": 1 + len(pares), "con_mi_punta": 1 + sum(1 for p in pares if p.get("punta") == publico["punta"])}
+
+
+def _vista(ctx, publico, pares, consistencia, sesion, en_firma) -> dict:
+    """Datos que consume `models.rubrica` (recorrido y criterios)."""
+    nodo = ctx.nodo
+    with nodo.lock:
+        analisis = rubrica.analizar_cadena(nodo.cadena, nodo.id)
+    return {"nodo": publico, "pares": pares, "consistencia": consistencia, "sesion": sesion, "en_firma": en_firma,
+            "cadena": analisis, "tipos_simulados": set(ctx.tipos_simulados),
+            "tipos_ataques_rechazados": set(ctx.tipos_ataques_rechazados)}
+
+
 @sellalo.get("/estado")
 def estado():
     ctx = _ctx()
     nodo = ctx.nodo
     servidor = ctx.activo()
     cuentas = nodo.genesis["cuentas"]
+    publico = nodo.publico()
+    pares = servidor.pares_publico() if servidor else []
+    consistencia = _consistencia(publico, pares)
+    sesion = ctx.sesion_publica()
+    en_firma = ctx.coordinador.en_firma()
+    recorrido = rubrica.recorrido(_vista(ctx, publico, pares, consistencia, sesion, en_firma))
     return jsonify(
-        ok=True, nodo=nodo.publico(), pares=servidor.pares_publico() if servidor else [],
+        ok=True, nodo=publico, pares=pares, consistencia=consistencia, sesion=sesion, recorrido=recorrido,
         red={"nombre": nodo.genesis["parametros"].get("nombre", "Sellalo"), "hash_genesis": nodo.hash_genesis,
              "puerto_p2p": servidor.puerto if servidor else ctx.puerto_p2p, "direcciones": _direcciones_locales()},
         laboratorios=[{"id": nid, "clave_publica": c["clave_publica"]} for nid, c in cuentas.items()],
-        sellos_en_firma=ctx.coordinador.en_firma(), solicitudes=ctx.coordinador.solicitudes(),
+        sellos_en_firma=en_firma, solicitudes=ctx.coordinador.solicitudes(),
         ataques=ataques_sellalo.catalogo(),
         laboratorio_ataques=bool(current_app.config.get("LABORATORIO_ATAQUES")), umbral_max_autores=5,
         limites={"dificultad": [DIF_MIN, DIF_MAX], "titulo": TITULO_MAX, "investigador": INVESTIGADOR_MAX,
@@ -286,6 +324,116 @@ def bloquear():
     ctx = _ctx()
     ctx.bloquear()
     return _ok(f"Nodo {ctx.nodo.id} bloqueado: minado y conexiones P2P detenidos.")
+
+
+def _clave_publica_info(nodo: NodoCompleto) -> dict:
+    """Metadatos públicos del almacén + contadores de desbloqueo. Sin sal, nonce ni texto cifrado (sólo longitudes)."""
+    fallos, espera = nodo.intentos_desbloqueo()
+    base = {"disponible": False, "desbloqueado": nodo.desbloqueado, "intentos_fallidos": fallos, "espera_s": espera,
+            "rechazados": nodo.desbloqueos_rechazados}
+    ruta = nodo.ruta_clave
+    if not ruta or not os.path.isfile(ruta):
+        return base
+    meta = metadatos_publicos(ruta)                  # ErrorClave (400) si el archivo no tiene el formato
+    try:
+        archivo = os.path.relpath(ruta).replace(os.sep, "/")
+        if archivo.startswith(".."):
+            archivo = ruta.replace(os.sep, "/")
+    except ValueError:
+        archivo = ruta.replace(os.sep, "/")
+    return {**meta, "archivo": archivo, "clave_en_claro_en_disco": nodo.clave_en_claro_en_disco(),
+            **{k: base[k] for k in base}, "disponible": True}
+
+
+@sellalo.get("/clave")
+def clave():
+    """Protección de la clave privada (rubro R3): formato del almacén sin secretos ni la contraseña."""
+    info = _clave_publica_info(_ctx().nodo)
+    if not info["disponible"]:
+        raise ErrorEstado("Este nodo no tiene un almacén de claves en disco.")
+    info.pop("disponible"), info.pop("rechazados")
+    return _ok(**info)
+
+
+def _huella(cadena) -> str:
+    return hashlib.sha256(json.dumps(cadena, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+@sellalo.get("/verificacion")
+def verificacion():
+    """Audita la copia local comprobación por comprobación (hash, enlace, Merkle, PoW, firma del minero, firmas)."""
+    ctx = _ctx()
+    nodo = ctx.nodo
+    with nodo.lock:
+        copia = copy.deepcopy(nodo.cadena)
+    resultado = verificar_cadena_detallada(copia, nodo.hash_genesis)
+    ctx.contar("verificaciones")
+    return _ok(**resultado)
+
+
+@sellalo.post("/verificacion/simular")
+def simular_alteracion():
+    """Altera una COPIA de la cadena (`tipo`, `bloque`) y la verifica; la cadena real no se modifica."""
+    d = datos()
+    tipo = d.get("tipo")
+    if not isinstance(tipo, str) or tipo not in TIPOS_ALTERACION:
+        raise ErrorEntrada(f"El tipo de alteración debe ser uno de: {', '.join(TIPOS_ALTERACION)}.")
+    numero = entero(d, "bloque", "El bloque", 1, 10 ** 9)
+    ctx = _ctx()
+    nodo = ctx.nodo
+    with nodo.lock:
+        cadena = copy.deepcopy(nodo.cadena)
+        punta = nodo.punta
+        huella = _huella(cadena)
+    copia, descripcion = alterar_copia(cadena, tipo, numero)
+    resultado = verificar_cadena_detallada(copia, nodo.hash_genesis)
+    with nodo.lock:
+        intacta = _huella(nodo.cadena[:len(cadena)]) == huella and nodo.cadena[len(cadena) - 1]["hash"] == punta
+    resultado.update(copia_alterada=True, alteracion={"tipo": tipo, "bloque": numero, "descripcion": descripcion},
+                     cadena_real_intacta=intacta)
+    ctx.contar("simulaciones")
+    if not resultado["valida"]:
+        ctx.tipos_simulados.add(tipo)
+    return _ok(**resultado)
+
+
+@sellalo.get("/auditoria")
+def auditoria():
+    """Estado de la auditoría con IA: lee docs/auditoria/estado.json (lo genera scripts/estado_auditoria.py)."""
+    datos_aud = rubrica.leer_auditoria()
+    if datos_aud is None:
+        raise ErrorEstado("No hay estado de auditoría: ejecuta «python scripts/estado_auditoria.py» para generar "
+                          "docs/auditoria/estado.json.")
+    return _ok(**datos_aud)
+
+
+@sellalo.get("/entrega")
+def entrega():
+    return _ok(entregables=rubrica.entregables())
+
+
+@sellalo.get("/rubrica")
+def rubrica_ruta():
+    """Tablero de la rúbrica (R1-R8 y EX): estado y evidencias calculados del nodo y del repositorio. Ver las
+    condiciones en `models.rubrica.criterios`."""
+    ctx = _ctx()
+    nodo, servidor = ctx.nodo, ctx.activo()
+    publico = nodo.publico()
+    pares = servidor.pares_publico() if servidor else []
+    consistencia = _consistencia(publico, pares)
+    sesion = ctx.sesion_publica()
+    v = _vista(ctx, publico, pares, consistencia, sesion, ctx.coordinador.en_firma())
+    with nodo.lock:
+        copia = copy.deepcopy(nodo.cadena)
+    v["verificacion"] = verificar_cadena_detallada(copia, nodo.hash_genesis)
+    try:
+        v["clave"] = _clave_publica_info(nodo)
+    except ErrorEntrada:
+        v["clave"] = {"disponible": False, "rechazados": nodo.desbloqueos_rechazados}
+    v["recorrido"] = rubrica.recorrido(v)
+    v["entregables"] = rubrica.entregables()
+    v["auditoria"] = rubrica.leer_auditoria()
+    return _ok(criterios=rubrica.criterios(v), recorrido=v["recorrido"])
 
 
 # ---------------------------------------------------------------- pares
@@ -407,7 +555,9 @@ def bloque(numero: int):
 def prioridad():
     d = _entrada()
     doc_hash = _doc_hash(d)
-    sellos = _ctx().nodo.prioridad(doc_hash)
+    ctx = _ctx()
+    sellos = ctx.nodo.prioridad(doc_hash)
+    ctx.contar("prioridad_consultas")
     mensaje = (f"El documento tiene {len(sellos)} sello(s); la prioridad es del más antiguo (bloque "
                f"#{sellos[0]['numero']})." if sellos else "El documento no está sellado en esta cadena.")
     return _ok(mensaje, doc_hash=doc_hash, sellos=sellos)
@@ -419,6 +569,7 @@ def certificado(doc_hash):
     nodo = _ctx().nodo
     with nodo.lock:
         cert = generar_certificado(nodo.cadena, doc_hash)
+    _ctx().contar("certificados_emitidos")
     cuerpo = json.dumps(cert, indent=2, ensure_ascii=False)
     return Response(cuerpo, mimetype="application/json",
                     headers={"Content-Disposition": f'attachment; filename="certificado-{doc_hash[:8]}.json"'})
@@ -461,8 +612,12 @@ def verificar_certificado_ruta():
     genesis = cert.get("genesis")
     misma_red = isinstance(genesis, dict) and genesis.get("hash") == _ctx().nodo.hash_genesis
     mensaje = resultado["motivo"] if resultado["valido"] else f"Certificado NO válido: {resultado['motivo']}."
+    if resultado["valido"]:
+        _ctx().contar("certificados_validos")
+    elif resultado.get("concluyente", True):
+        _ctx().contar("certificados_invalidos")
     return _ok(mensaje, valido=resultado["valido"], motivo=resultado["motivo"], detalle=resultado.get("detalle"),
-               resumen=resumen, misma_red=misma_red)
+               resumen=resumen, misma_red=misma_red, pasos=resultado.get("pasos", []), merkle=resultado.get("merkle"))
 
 
 # ---------------------------------------------------------------- ataques
@@ -480,4 +635,7 @@ def ataque():
         raise ErrorEntrada("El destino debe ser «local» o «red».")
     ctx = _ctx()
     resultado = ataques_sellalo.ejecutar(ctx.nodo, ctx.activo(), tipo, destino)
+    if resultado.get("rechazado"):
+        ctx.contar("ataques_rechazados")
+        ctx.tipos_ataques_rechazados.add(tipo)
     return jsonify(ok=True, **resultado)

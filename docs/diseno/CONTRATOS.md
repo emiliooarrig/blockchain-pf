@@ -278,3 +278,38 @@ Respuesta: `{ok: true, mensaje?, ...}` o `{ok: false, error}` con 400/409; nunca
 `sellos_en_firma[]`: `{id, doc_hash, titulo, investigador, laboratorio, autores, umbral, firmas: [ids], faltan: n, creado}`.
 Persistencia en `<datos>/sellos_en_firma.json` (escritura atómica). Coordinación en `models/coordinador_sellos.py`
 (`CoordinadorSellos(nodo, servidor)`), que registra los manejadores `SELLO_PROPUESTO` y `SELLO_FIRMA` del transporte.
+
+
+## C8 · La rúbrica en la interfaz (rutas de verificación, clave, consenso, auditoría y rúbrica)
+
+Contrato completo y auditoría en [`docs/RUBRICA_EN_INTERFAZ.md`](../RUBRICA_EN_INTERFAZ.md) (§3). Implementado en
+`controllers/sellalo.py`, `models/rubrica.py` y `models/verificacion_detallada.py`. Resumen:
+
+| Método | Ruta | Contenido |
+|---|---|---|
+| GET | `/estado` | además: `nodo.dificultad_red`, `nodo.trabajo`, `nodo.consenso`, `nodo.persistencia`, `consistencia`, `sesion`, `recorrido` (10 pasos) |
+| GET | `/verificacion` | auditoría de la copia local, comprobación por comprobación (sin detenerse en el primer error) |
+| POST | `/verificacion/simular` | `{tipo, bloque}` sobre una **copia**; `cadena_real_intacta`; es la única escritura nueva |
+| GET | `/clave` | metadatos públicos del almacén (sin sal, nonce ni texto cifrado), `intentos_fallidos`, `espera_s` |
+| POST | `/certificado/verificar` | además: `pasos` y `merkle` |
+| GET | `/auditoria` · `/entrega` · `/rubrica` | estado de la auditoría con IA, entregables y tablero R1-R8 + EX |
+
+Precisiones de la implementación (sin cambiar los campos del contrato):
+
+- `NodoCompleto.iniciar_minado(dificultad=None, continuo=False)`: si el génesis fija `parametros.dificultad` se usa esa;
+  otra distinta es `ErrorEntrada`. `POST /minar` sin `dificultad` funciona con ese génesis.
+- `desbloquear`: contador de contraseñas incorrectas seguidas y espera 0, 1, 2, 4... s (máx. 30) antes del siguiente
+  intento, fuera del candado del nodo y del contexto. `/clave` la expone.
+- `pasos[].ok` es `true`/`false` si el paso se evaluó y `null` (con `evaluado: false`) si no se llegó a él (falló uno
+  anterior) o no había datos (documento no entregado). `merkle` es `null` si no se llegó al paso de Merkle.
+- `/verificacion` agrega `genesis` `{hash, ok}`, `dificultad_red` y `otras_reglas` `{ok, error}` (el validador del nodo
+  se ejecuta además, por si una regla no itemizada falla). Tipos de alteración: `transaccion`, `firma_tx`, `hash`,
+  `enlace`, `merkle`, `firma_minero`, `multifirma`, `nonce`; `COMPROBACIONES_ESPERADAS` dice cuáles deben fallar.
+- `reorganizaciones` registra **toda** cadena adoptada vía `recibir_cadena`; hay reorganización real cuando
+  `bloques_descartados > 0`.
+- Ids de sección de `/rubrica`: R1 `seccion-firmas`, R2 `seccion-verificacion`, R3 `seccion-identidad`, R4
+  `seccion-consenso`, R5 `seccion-red`, R6 `seccion-prioridad`, R7 `seccion-recorrido`, R8 `seccion-entrega`,
+  EX `seccion-auditoria`.
+- Estados de un criterio: `demostrado` = todas sus evidencias en ok; `parcial` = alguna; `pendiente` = ninguna
+  (condiciones de cada una en la docstring de `models.rubrica.criterios`).
+- `docs/auditoria/estado.json` lo genera `scripts/estado_auditoria.py` (HALLAZGOS.md + TRIAJE.md + `git log`).
