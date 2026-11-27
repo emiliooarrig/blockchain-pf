@@ -203,7 +203,7 @@ es el puerto P2P, y su saludo va autenticado con la clave de cada laboratorio.
 python -m pytest -q
 ```
 
-Unas 790 pruebas (≈ 2 min). Incluyen una red real de 3 procesos que recorre el caso de uso completo
+Unas 840 pruebas (≈ 2 min). Incluyen una red real de 3 procesos que recorre el caso de uso completo
 (`tests/test_e2e_red.py`), pruebas adversariales de la red y de la API, y una prueba por cada hallazgo corregido de la
 auditoría (`tests/test_auditoria_g*.py`).
 
