@@ -26,6 +26,7 @@ MAX_LINEA = 1024 * 1024          # 1 MiB por línea
 MAX_BLOQUES_PAGINA = 100
 MAX_BLOQUES_SYNC = 200_000       # tope de seguridad al armar una cadena ajena
 FALTAS_PARA_VETO = 5
+FALTAS_IP_PARA_VETO = 20         # tope propio para una IP sin autenticar (muchos nodos pueden compartir NAT/loopback)
 MAX_LATENCIA_MS = 3_600_000.0     # tope de la latencia mostrada (1 h)
 TIPOS_SALUDO = ("HELLO", "HELLO_ACK", "AUTH", "HELLO_REJECT")
 TIPOS_BASE = ("PING", "PONG", "GET_BLOQUES", "BLOQUES", "BLOQUE", "TX", "BYE")
@@ -112,7 +113,7 @@ class _Par:
 
 class ServidorP2P:
     def __init__(self, nodo, host="0.0.0.0", puerto=6000, *, intervalo_ping=3.0, tiempo_sin_respuesta=12.0,
-                 tiempo_saludo=5.0, tiempo_sync=10.0, segundos_veto=60.0, max_vistos=10_000):
+                 tiempo_saludo=5.0, tiempo_sync=10.0, segundos_veto=60.0, max_vistos=10_000, ventana_faltas=300.0):
         self.nodo = nodo
         self.host = host
         self.puerto = puerto
@@ -122,12 +123,13 @@ class ServidorP2P:
         self.tiempo_sync = tiempo_sync
         self.segundos_veto = segundos_veto
         self.max_vistos = max_vistos
+        self.ventana_faltas = ventana_faltas      # las faltas más viejas que esto ya no cuentan
         self._lock = threading.RLock()
         self._pares: dict[str, _Par] = {}
         self._conexiones: set[_Par] = set()      # incluye las que aún no terminan el saludo
         self._manejadores: dict[str, object] = {}
         self._vistos: OrderedDict = OrderedDict()
-        self._faltas: dict[str, int] = {}
+        self._faltas: dict[str, list[float]] = {}     # clave -> marcas de tiempo (monotónicas) de sus faltas
         self._vetos: dict[str, float] = {}
         self._hilos: list[threading.Thread] = []
         self._escucha: socket.socket | None = None
@@ -157,7 +159,17 @@ class ServidorP2P:
 
     def faltas_de(self, clave: str) -> int:
         with self._lock:
-            return self._faltas.get(clave, 0)
+            return len(self._recientes(clave))
+
+    def _recientes(self, clave: str) -> list[float]:
+        """Faltas de `clave` dentro de la ventana (descarta las viejas). Con el candado tomado."""
+        cortes = time.monotonic() - self.ventana_faltas
+        marcas = [t for t in self._faltas.get(clave, ()) if t >= cortes]
+        if marcas:
+            self._faltas[clave] = marcas
+        else:
+            self._faltas.pop(clave, None)
+        return marcas
 
     def vetado(self, clave: str) -> bool:
         with self._lock:
@@ -169,17 +181,37 @@ class ServidorP2P:
                 return False
             return True
 
+    @staticmethod
+    def _es_ip(clave: str) -> bool:
+        try:
+            ipaddress.ip_address(clave)
+            return True
+        except ValueError:
+            return False
+
     def _sumar_falta(self, clave: str, motivo: str) -> bool:
-        """Suma una falta a `clave` (id del par o IP). Devuelve True si quedó vetado."""
+        """Suma una falta a `clave` (id de un par ya autenticado o IP). Devuelve True si quedó vetado.
+
+        Antes del AUTH las faltas se cargan sólo a la IP (nunca a la identidad que el par dice tener, o cualquiera
+        podría vetar a un laboratorio ajeno), con un tope propio, y el loopback nunca se veta: en la red local todos
+        los nodos comparten 127.0.0.1."""
+        es_ip = self._es_ip(clave)
+        tope = FALTAS_IP_PARA_VETO if es_ip else FALTAS_PARA_VETO
+        exento = es_ip and ipaddress.ip_address(clave).is_loopback
         with self._lock:
-            n = self._faltas.get(clave, 0) + 1
-            veto = n >= FALTAS_PARA_VETO
+            marcas = self._recientes(clave)
+            marcas.append(time.monotonic())
+            n = len(marcas)
+            veto = n >= tope
             if veto:
                 self._faltas.pop(clave, None)
-                self._vetos[clave] = time.monotonic() + self.segundos_veto
+                if not exento:
+                    self._vetos[clave] = time.monotonic() + self.segundos_veto
             else:
-                self._faltas[clave] = n
-        self._evento("p2p", f"Falta de {clave}: {motivo} ({n}/{FALTAS_PARA_VETO})")
+                self._faltas[clave] = marcas
+        self._evento("p2p", f"Falta de {clave}: {motivo} ({n}/{tope})")
+        if veto and exento:
+            return False
         if veto:
             self._evento("p2p", f"{clave} vetado {self.segundos_veto:g} s por faltas repetidas.")
         return veto
@@ -195,17 +227,22 @@ class ServidorP2P:
                 self._vistos.popitem(last=False)
             return False
 
+    def _fue_visto(self, clave: str) -> bool:
+        """Consulta sin marcar: un mensaje sólo se marca después de que el nodo lo aceptó."""
+        with self._lock:
+            if clave in self._vistos:
+                self._vistos.move_to_end(clave)
+                return True
+            return False
+
     @staticmethod
     def _clave_dedup(msg_tipo: str, obj) -> str:
-        if isinstance(obj, dict):
-            if msg_tipo == "BLOQUE" and isinstance(obj.get("hash"), str):
-                return "B:" + obj["hash"]
-            if msg_tipo == "TX" and isinstance(obj.get("id"), str):
-                return "T:" + obj["id"]
+        """Clave de deduplicación por el CONTENIDO completo (nunca por el hash que el par declare): un mensaje basura
+        con el hash de uno legítimo no puede hacer que se descarte el verdadero."""
         try:
             return msg_tipo + ":" + sha256_hex(canonico(obj))
-        except (TypeError, ValueError):
-            return msg_tipo + ":" + repr(obj)[:200]
+        except (TypeError, ValueError, RecursionError):
+            return msg_tipo + ":" + sha256_hex(repr(obj)[:2000])
 
     # ---------- envío ----------
     def _enviar(self, par: _Par, msg: dict) -> bool:
@@ -302,8 +339,14 @@ class ServidorP2P:
                 "altura": r["altura"], "trabajo": r["trabajo"], "punta": r["punta"], "reto": reto,
                 "puerto": self.puerto}
 
-    def _firma_reto(self, reto: str) -> str:
-        return self.nodo.firmar(f"{reto}|{self.nodo.id}".encode("utf-8"))
+    def _datos_saludo(self, reto_iniciador: str, reto_respondedor: str, firmante: str, destinatario: str) -> bytes:
+        """Mensaje que se firma en el saludo. Liga la firma a la red, a los dos retos y a los dos extremos, de modo que
+        no sirve en otro canal (un tercero no puede pedirle a un nodo que firme por él ni reenviar la firma)."""
+        return (f"sellalo-p2p|{self.nodo.hash_genesis}|{reto_iniciador}|{reto_respondedor}|{firmante}|"
+                f"{destinatario}").encode("utf-8")
+
+    def _firma_saludo(self, reto_iniciador: str, reto_respondedor: str, destinatario: str) -> str:
+        return self.nodo.firmar(self._datos_saludo(reto_iniciador, reto_respondedor, self.nodo.id, destinatario))
 
     def _validar_datos_hello(self, msg: dict) -> tuple[str, bool] | None:
         """Valida forma y reglas del HELLO/HELLO_ACK ajeno. Devuelve (motivo, es_falta) o None si es válido."""
@@ -370,13 +413,13 @@ class ServidorP2P:
         try:
             msg = par.lector.leer(self.tiempo_saludo)
         except _Falta as f:
-            self._sumar_falta(par.id or par.ip, f"saludo: {f.motivo}")
+            self._sumar_falta(par.ip, f"saludo: {f.motivo}")
             self._rechazar(par, f"saludo inválido: {f.motivo}")
             return None
         except _Cierre:
             return None
         if msg is None:
-            self._sumar_falta(par.id or par.ip, "saludo con tiempo agotado")
+            self._sumar_falta(par.ip, "saludo con tiempo agotado")
             self._rechazar(par, "tiempo de saludo agotado")
             return None
         if msg["tipo"] == "HELLO_REJECT":
@@ -384,7 +427,7 @@ class ServidorP2P:
             self._cerrar(par)
             return None
         if msg["tipo"] != esperado:
-            self._sumar_falta(par.id or par.ip, f"{msg['tipo'][:30]} antes de completar el saludo")
+            self._sumar_falta(par.ip, f"{msg['tipo'][:30]} antes de completar el saludo")
             self._rechazar(par, f"se esperaba {esperado} y llegó otro mensaje")
             return None
         return msg
@@ -404,7 +447,7 @@ class ServidorP2P:
         reto_propio = os.urandom(16).hex()
         try:
             ack = self._hello("HELLO_ACK", reto_propio)
-            ack["firma_reto"] = self._firma_reto(msg["reto"])
+            ack["firma_reto"] = self._firma_saludo(msg["reto"], reto_propio, par.id)
         except Exception as exc:
             self._rechazar(par, f"no puedo firmar: {exc}")
             return False
@@ -414,8 +457,8 @@ class ServidorP2P:
         if auth is None:
             return False
         pub = self.nodo.clave_publica_de(par.id)
-        if not verificar(pub, f"{reto_propio}|{par.id}".encode("utf-8"), auth.get("firma_reto")):
-            self._sumar_falta(par.id, "firma de reto inválida")
+        if not verificar(pub, self._datos_saludo(msg["reto"], reto_propio, par.id, self.nodo.id), auth.get("firma_reto")):
+            self._sumar_falta(par.ip, "firma de reto inválida")
             self._rechazar(par, "firma del reto inválida")
             return False
         motivo = self._registrar(par, msg, msg.get("puerto"))
@@ -464,11 +507,11 @@ class ServidorP2P:
                 raise ErrorEstado(f"Saludo rechazado: {problema[0]}.")
             par.id = msg["nodo"]
             pub = self.nodo.clave_publica_de(par.id)
-            if not verificar(pub, f"{reto}|{par.id}".encode("utf-8"), msg.get("firma_reto")):
-                self._sumar_falta(par.id, "firma de reto inválida")
+            if not verificar(pub, self._datos_saludo(reto, msg["reto"], par.id, self.nodo.id), msg.get("firma_reto")):
+                self._sumar_falta(par.ip, "firma de reto inválida")
                 self._rechazar(par, "firma del reto inválida")
                 raise ErrorEstado("El par no pudo probar su identidad (firma del reto inválida).")
-            auth = {"tipo": "AUTH", "firma_reto": self._firma_reto(msg["reto"])}
+            auth = {"tipo": "AUTH", "firma_reto": self._firma_saludo(reto, msg["reto"], par.id)}
             motivo = self._registrar(par, msg, puerto)
             if motivo:
                 self._rechazar(par, motivo)
@@ -499,6 +542,7 @@ class ServidorP2P:
         return msg
 
     def _tras_saludo(self, par: _Par) -> None:
+        """Tras el saludo y tras cada PING/PONG: si el par anuncia más trabajo que el mío, se sincroniza."""
         if par.trabajo > self.nodo.resumen()["trabajo"]:
             self._iniciar_sync(par)
 
@@ -572,8 +616,10 @@ class ServidorP2P:
         if tipo == "PING":
             self._actualizar_resumen(par, msg)
             self._enviar(par, {"tipo": "PONG", "t": msg.get("t"), **self._resumen_seguro()})
+            self._tras_saludo(par)
         elif tipo == "PONG":
             self._actualizar_resumen(par, msg)
+            self._tras_saludo(par)
             t = msg.get("t")
             if isinstance(t, (int, float)) and not isinstance(t, bool) and math.isfinite(t):
                 # acotada: un par no puede meter Infinity/NaN en el JSON de /estado con una marca de tiempo absurda
@@ -621,13 +667,19 @@ class ServidorP2P:
         bloque = msg.get("bloque")
         if not isinstance(bloque, dict):
             raise _Falta("BLOQUE sin objeto 'bloque'")
-        if self._visto(self._clave_dedup("BLOQUE", bloque)):
+        clave = self._clave_dedup("BLOQUE", bloque)
+        if self._fue_visto(clave):
             return
         if isinstance(bloque.get("numero"), int) and not isinstance(bloque["numero"], bool):
             par.altura = max(par.altura, bloque["numero"])
         if isinstance(bloque.get("hash"), str):
             par.punta = bloque["hash"][:128]
         estado, motivo = self.nodo.recibir_bloque(bloque, de=par.id)
+        if estado == "rechazado" and getattr(motivo, "benigno", False):
+            self._evento("p2p", f"Bloque de {par.id} no aplicable por ahora: {str(motivo)[:120]}")
+            return                                  # no es culpa del par (p. ej. reloj adelantado): sin falta
+        if estado in ("aceptado", "duplicado"):
+            self._visto(clave)
         if estado == "aceptado":
             self.difundir("BLOQUE", {"bloque": bloque}, excepto=par.id)
         elif estado == "sincronizar":
@@ -639,12 +691,19 @@ class ServidorP2P:
         tx = msg.get("tx")
         if not isinstance(tx, dict):
             raise _Falta("TX sin objeto 'tx'")
-        if self._visto(self._clave_dedup("TX", tx)):
+        clave = self._clave_dedup("TX", tx)
+        if self._fue_visto(clave):
             return
         try:
             self.nodo.agregar_transaccion(tx, origen=par.id)
         except (ErrorEntrada, ErrorEstado) as exc:
+            if getattr(exc, "benigno", False):      # duplicada, pendientes llena, saldo...: depende de mi estado local
+                if getattr(exc, "conocida", False):
+                    self._visto(clave)
+                self._evento("p2p", f"TX de {par.id} no aplicable por ahora: {str(exc)[:120]}")
+                return
             raise _Falta(f"transacción rechazada: {str(exc)[:120]}")
+        self._visto(clave)
         self.difundir("TX", {"tx": tx}, excepto=par.id)
 
     # ---------- sincronización ----------

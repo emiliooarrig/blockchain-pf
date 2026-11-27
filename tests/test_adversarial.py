@@ -276,16 +276,23 @@ def hello(genesis_hash, nodo="LAB-B", **cambios):
     return msg
 
 
+def firma_saludo(genesis_hash, reto_iniciador, reto_respondedor, firmante, destinatario) -> bytes:
+    """Mensaje que se firma en el AUTH (AUD-008): ligado a la red, a los dos retos y a los dos extremos."""
+    return f"sellalo-p2p|{genesis_hash}|{reto_iniciador}|{reto_respondedor}|{firmante}|{destinatario}".encode()
+
+
 def autenticar(destino, labs, nodo="LAB-B", **cambios_hello):
     """Saludo completo y válido como `nodo` (con su clave real). Devuelve la conexión o None si no se pudo."""
     genesis, _, claves, _ = labs
     fin = time.monotonic() + 4
     while time.monotonic() < fin:
         k = Cruda(destino)
-        k.enviar(hello(genesis["hash"], nodo, **cambios_hello))
+        saludo = hello(genesis["hash"], nodo, **cambios_hello)
+        k.enviar(saludo)
         ack = k.leer()
         if ack and ack.get("tipo") == "HELLO_ACK":
-            k.enviar({"tipo": "AUTH", "firma_reto": claves[nodo].firmar(f"{ack['reto']}|{nodo}".encode())})
+            k.enviar({"tipo": "AUTH", "firma_reto": claves[nodo].firmar(firma_saludo(
+                genesis["hash"], saludo["reto"], ack["reto"], nodo, ack["nodo"]))})
             time.sleep(0.15)
             return k
         k.cerrar()
@@ -361,9 +368,11 @@ def test_suplantacion_de_identidad_con_firma_de_otro_laboratorio(nodo_p2p, labs)
     app, ctx, puerto = nodo_p2p
     genesis, _, claves, _ = labs
     k = Cruda(puerto)
-    k.enviar(hello(genesis["hash"], "LAB-B"))
+    saludo = hello(genesis["hash"], "LAB-B")
+    k.enviar(saludo)
     ack = k.leer()
-    k.enviar({"tipo": "AUTH", "firma_reto": claves["LAB-C"].firmar(f"{ack['reto']}|LAB-B".encode())})
+    k.enviar({"tipo": "AUTH", "firma_reto": claves["LAB-C"].firmar(firma_saludo(
+        genesis["hash"], saludo["reto"], ack["reto"], "LAB-B", ack["nodo"]))})
     assert k.leer()["tipo"] == "HELLO_REJECT"
     k.cerrar()
     vivo(app, ctx)

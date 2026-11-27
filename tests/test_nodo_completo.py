@@ -344,9 +344,10 @@ def test_empate_gana_la_punta_con_hash_menor(tmp_path, labs):
     assert n2.recibir_cadena(menor)[0]
     ok, motivo = n2.recibir_cadena(mayor)
     assert not ok and "hash mayor" in motivo and n2.punta == menor[-1]["hash"]
-    # el bloque rival de la misma altura con hash menor provoca sincronización; con hash mayor, no
-    assert n1.recibir_bloque(mayor[1])[0] == "duplicado"
-    assert n2.recibir_bloque(mayor[1])[0] == "duplicado"
+    # un bloque rival de la misma altura que no extiende mi cadena provoca sincronización, con hash menor o mayor: su
+    # rama podría tener más trabajo acumulado (AUD-002); `recibir_cadena` decide por trabajo y, en empate, por hash
+    assert n1.recibir_bloque(mayor[1])[0] == "sincronizar"
+    assert n2.recibir_bloque(mayor[1])[0] == "sincronizar"
     n3 = nuevo_nodo(tmp_path / "3", labs)
     n3.recibir_cadena(mayor)
     assert n3.recibir_bloque(menor[1])[0] == "sincronizar"
