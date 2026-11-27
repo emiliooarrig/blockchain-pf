@@ -725,7 +725,8 @@
     }
     partes.push(h("p", { class: "verif-global" }, h("span", { class: `chip ${d.valida ? "chip-ok" : "chip-bad"}` }, d.valida ? "cadena válida" : "no válida"),
       h("span", { class: "small muted" }, ` ${typeof d.duracion_ms === "number" ? `${d.duracion_ms} ms` : ""} · ${(d.bloques || []).length} bloques`),
-      d.primer_error ? h("span", { class: "small" }, ` · primer error: ${typeof d.primer_error === "string" ? d.primer_error : JSON.stringify(d.primer_error)}`) : null));
+      d.primer_error ? h("span", { class: "small" }, ` · primer error: ${typeof d.primer_error === "string" ? d.primer_error
+        : `bloque #${d.primer_error.bloque ?? "?"} (${d.primer_error.comprobacion ?? "?"}): ${d.primer_error.motivo ?? ""}`}`) : null));
     partes.push(tablaVerificacion(d));
     box.replaceChildren(...partes);
   }

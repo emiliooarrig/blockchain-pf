@@ -491,3 +491,6 @@ fieldset.autores legend { padding: 0 6px; font-size: .82rem; font-weight: 600; }
 .entregables li { display: flex; align-items: flex-start; gap: 2px; }
 .consistencia-fila { margin-bottom: 18px; }
 @media (max-width: 560px) { .barra-fila { grid-template-columns: 70px 1fr auto; } .indice { padding: 6px 8px; } }
+
+/* Auditoría: los ids AUD-0NN no se parten */
+#aud-tabla-wrap td:first-child { white-space: nowrap; font-family: var(--mono); }
